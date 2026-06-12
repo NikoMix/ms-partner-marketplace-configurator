@@ -12,6 +12,7 @@ import {
 } from '@fluentui/react-components';
 import { Open16Regular } from '@fluentui/react-icons';
 import { SelectableCard } from '../components/SelectableCard';
+import { LearningResources } from '../components/LearningResources';
 import { useWizard } from '../state/WizardContext';
 import { getOfferType } from '../data/catalog';
 import { LISTING_OPTIONS } from '../data/types';
@@ -149,6 +150,16 @@ export function OverviewStep() {
         <Link className={styles.docLink} href={offer.docUrl} target="_blank" rel="noreferrer">
           Full requirements on Microsoft Learn <Open16Regular />
         </Link>
+
+        <Divider />
+
+        <div className={styles.section}>
+          <Title3 as="h3">Further learning — Mastering the Marketplace</Title3>
+          <Body1 className={styles.note}>
+            Curated videos and guides to help you publish this offer type successfully.
+          </Body1>
+          <LearningResources offerTypeId={offer.id} />
+        </div>
       </div>
     </div>
   );

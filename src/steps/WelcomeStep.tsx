@@ -1,13 +1,16 @@
-import { Button, Title2, Body1, Body1Strong, makeStyles, tokens } from '@fluentui/react-components';
+import { Button, Title2, Body1, Body1Strong, Link, makeStyles, tokens } from '@fluentui/react-components';
 import {
   ArrowRight20Regular,
   Sparkle32Regular,
   Image32Regular,
   ArrowDownload32Regular,
-  Apps32Regular
+  Apps32Regular,
+  Open16Regular,
+  HatGraduation24Regular
 } from '@fluentui/react-icons';
 import type { ReactNode } from 'react';
 import { useWizard } from '../state/WizardContext';
+import { MASTERING_HUB_URL } from '../data/resources';
 
 const useStyles = makeStyles({
   intro: { maxWidth: '760px' },
@@ -39,7 +42,19 @@ const useStyles = makeStyles({
     alignItems: 'center',
     flexWrap: 'wrap'
   },
-  note: { color: '#605e5c' }
+  note: { color: '#605e5c' },
+  learnBanner: {
+    marginTop: '28px',
+    padding: '20px 24px',
+    borderRadius: '10px',
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    backgroundColor: tokens.colorNeutralBackground2,
+    display: 'flex',
+    gap: '16px',
+    alignItems: 'flex-start'
+  },
+  learnIcon: { color: '#0067b8', flexShrink: 0 },
+  learnLink: { display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '6px' }
 });
 
 interface Feature {
@@ -112,6 +127,28 @@ export function WelcomeStep() {
         <Body1 className={styles.note}>
           Everything runs in your browser. AI features are optional and use a token you provide.
         </Body1>
+      </div>
+
+      <div className={styles.learnBanner}>
+        <div className={styles.learnIcon}>
+          <HatGraduation24Regular />
+        </div>
+        <div>
+          <Body1Strong block>New to the commercial marketplace?</Body1Strong>
+          <Body1 block>
+            Mastering the Marketplace is a free Microsoft training program with videos and
+            downloadable guides for every offer type. We surface the most relevant lessons as you
+            progress through the wizard.
+          </Body1>
+          <Link
+            className={styles.learnLink}
+            href={MASTERING_HUB_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Explore Mastering the Marketplace <Open16Regular />
+          </Link>
+        </div>
       </div>
     </div>
   );
