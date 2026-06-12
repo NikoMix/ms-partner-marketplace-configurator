@@ -36,6 +36,11 @@ jobs:
         env:
           # Project site is served from https://<owner>.github.io/<repo>/
           BASE_PATH: /${{ github.event.repository.name }}/
+          # Optional "Sign in with GitHub" wiring. Set these as repository *variables*
+          # (Settings → Secrets and variables → Actions → Variables). They are not secrets:
+          # an OAuth App client id is public, and the device flow uses no client secret.
+          VITE_GITHUB_OAUTH_CLIENT_ID: ${{ vars.VITE_GITHUB_OAUTH_CLIENT_ID }}
+          VITE_CORS_PROXY: ${{ vars.VITE_CORS_PROXY }}
         run: npm run build
 
       - name: Configure Pages

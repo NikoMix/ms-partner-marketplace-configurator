@@ -31,7 +31,7 @@ export function triggerDownload(blob: Blob, filename: string): void {
 }
 
 function languageLabel(language: BillingLanguage): string {
-  return language === 'csharp' ? 'C# (.NET 8 / ASP.NET minimal API)' : 'Node.js (Express)';
+  return language === 'csharp' ? 'C# (.NET 10 / ASP.NET minimal API)' : 'Node.js (Express)';
 }
 
 function billingReadme(ctx: BillingZipContext): string {
@@ -266,12 +266,12 @@ const SAAS_PRICING_JSON = `{
 `;
 
 // ---------------------------------------------------------------------------
-// C# (.NET 8) variants
+// C# (.NET 10) variants
 // ---------------------------------------------------------------------------
 
 const CSHARP_WEB_CSPROJ = `<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BillingStarter</RootNamespace>
@@ -285,7 +285,7 @@ const CSHARP_WEB_CSPROJ = `<Project Sdk="Microsoft.NET.Sdk.Web">
 const CSHARP_CONSOLE_CSPROJ = `<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BillingStarter</RootNamespace>
