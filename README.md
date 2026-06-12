@@ -56,6 +56,63 @@ You have two options, both configured in **Settings** (gear icon, top right):
   [fine-grained PAT](https://github.com/settings/personal-access-tokens) works well) and paste it
   into Settings. This is the simplest option and needs no proxy.
 
+### Configuring the GitHub OAuth App
+
+> **Which return URL do I enter?** This app signs in with the GitHub **OAuth _device flow_**, which
+> **never redirects back to the app** — so there is no functional "return URL". GitHub's registration
+> form nevertheless makes **Authorization callback URL** a **required** field, so you must enter
+> *something* valid. Use your GitHub Pages URL:
+>
+> ```
+> https://nikomix.github.io/ms-partner-marketplace-configurator/
+> ```
+>
+> Its value is never used during sign-in; the field just can't be left blank. The setting that
+> **actually** matters is the **Enable Device Flow** checkbox — sign-in fails if it isn't ticked.
+
+The device flow is what lets a purely static, browser-only app authenticate **without a client
+secret** (a secret could never be kept safe in client-side code). Rather than redirecting, the app
+shows the user a short code to enter at `https://github.com/login/device`, then polls GitHub until
+they approve.
+
+**1. Register the OAuth App**
+
+Go to **GitHub → Settings → Developer settings → [OAuth Apps](https://github.com/settings/developers)
+→ New OAuth App** (or your organization's **Settings → Developer settings → OAuth Apps** to share it
+across a team), and fill in:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| **Application name** | e.g. `Marketplace Offer Wizard` | Shown on the GitHub authorization screen. |
+| **Homepage URL** | `https://nikomix.github.io/ms-partner-marketplace-configurator/` | Your deployed site (use your fork's Pages URL if different). |
+| **Authorization callback URL** | `https://nikomix.github.io/ms-partner-marketplace-configurator/` | **Required by the form but unused by the device flow.** Any valid URL works; the Pages URL is the tidy choice. |
+| **Enable Device Flow** | ✅ **Checked** | **Required** — sign-in does not work without it. |
+
+You do **not** need a client secret — leave it ungenerated/unused.
+
+For **local development**, you can reuse the same app (the callback URL still doesn't matter), or set
+the fields to `http://localhost:5173/ms-partner-marketplace-configurator/`.
+
+**2. Provide the Client ID**
+
+Copy the **Client ID** from the OAuth App page (it looks like `Iv1.0123456789abcdef`) and give it to
+the wizard either way:
+
+- **Build time (recommended for the deployed site)** — add a repository **variable** named
+  `VITE_GITHUB_OAUTH_CLIENT_ID` under **Settings → Secrets and variables → Actions → Variables**. The
+  Pages workflow ([`deploy.yml`](.github/workflows/deploy.yml)) passes it into the build. (A client id
+  is public, so a *variable* — not a secret — is correct.)
+- **Runtime** — paste it into **Settings → Sign-in configuration (advanced) → OAuth App client id**
+  inside the running app.
+
+**3. Add a CORS proxy**
+
+GitHub's device and token endpoints (`github.com/login/…`) don't return CORS headers, so the browser
+can't call them directly. Provide a CORS proxy **prefix** — the GitHub URL is appended to it — via the
+`VITE_CORS_PROXY` repository variable (build time) or **Settings → Sign-in configuration → CORS proxy
+prefix** (runtime). If you'd rather not run a proxy, use the **Bring your own token** option instead,
+which needs no proxy.
+
 ### Configure
 
 In **Settings** you can also adjust:
