@@ -21,6 +21,7 @@ import {
 import { useWizard } from '../state/WizardContext';
 import { getOfferType } from '../data/catalog';
 import { generateImage, AiError } from '../ai/client';
+import type { AssetSpec } from '../data/types';
 
 const useStyles = makeStyles({
   grid: {
@@ -52,7 +53,14 @@ const useStyles = makeStyles({
   },
   empty: { color: tokens.colorNeutralForeground3 },
   actions: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
-  meta: { color: tokens.colorNeutralForeground3 }
+  meta: { color: tokens.colorNeutralForeground3 },
+  groupHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginTop: '28px'
+  },
+  groupHint: { color: tokens.colorNeutralForeground3, marginTop: '2px' }
 });
 
 function resizeToCover(src: string, w: number, h: number): Promise<string> {
@@ -187,6 +195,88 @@ export function AssetsStep() {
     }
   }
 
+  const requiredAssets = offer.requiredAssets.filter((a) => a.required);
+  const optionalAssets = offer.requiredAssets.filter((a) => !a.required);
+
+  function renderCard(a: AssetSpec) {
+    const current = state.assets[a.id];
+    const w = a.width ?? 0;
+    const h = a.height ?? 0;
+    const canGenerate = !!a.aiGenerable && w > 0 && h > 0;
+    return (
+      <div key={a.id} className={styles.card}>
+        <div className={styles.head}>
+          <Body1Strong>{a.label}</Body1Strong>
+          <Badge appearance="tint" color={a.required ? 'danger' : 'informative'} size="small">
+            {a.required ? 'required' : 'optional'}
+          </Badge>
+        </div>
+        <Caption1 className={styles.meta}>
+          {w > 0 && h > 0 ? `${w}×${h}px · ` : ''}
+          {a.format.toUpperCase()}
+          {a.maxCount ? ` · up to ${a.maxCount}` : ''}
+        </Caption1>
+        {a.notes && <Caption1 className={styles.meta}>{a.notes}</Caption1>}
+
+        <div className={styles.preview}>
+          {current ? (
+            <img className="asset-thumb" src={current} alt={`${a.label} preview`} />
+          ) : (
+            <Caption1 className={styles.empty}>No image yet</Caption1>
+          )}
+        </div>
+
+        <div className={styles.actions}>
+          <Button
+            size="small"
+            icon={<ArrowUpload20Regular />}
+            disabled={!!busy[a.id]}
+            onClick={() => pickImage((file) => handleUpload(a.id, w || 512, h || 512, file))}
+          >
+            Upload
+          </Button>
+          {canGenerate && (
+            <Button
+              size="small"
+              appearance="primary"
+              icon={busy[a.id] ? <Spinner size="tiny" /> : <Sparkle20Regular />}
+              disabled={!!busy[a.id] || !aiReady}
+              onClick={() => handleGenerate(a.id, a.label, a.notes, w, h)}
+            >
+              {current ? 'Refine with AI' : 'Generate'}
+            </Button>
+          )}
+          {current && (
+            <>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<ArrowDownload20Regular />}
+                onClick={() => downloadDataUrl(current, `${a.id}.png`)}
+              >
+                Download
+              </Button>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Delete20Regular />}
+                onClick={() => dispatch({ type: 'REMOVE_ASSET', specId: a.id })}
+              >
+                Remove
+              </Button>
+            </>
+          )}
+        </div>
+
+        {errors[a.id] && (
+          <MessageBar intent="error">
+            <MessageBarBody>{errors[a.id]}</MessageBarBody>
+          </MessageBar>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="step-body">
       <Title3 as="h2">Marketplace assets</Title3>
@@ -205,86 +295,31 @@ export function AssetsStep() {
         </MessageBar>
       )}
 
-      <div className={styles.grid}>
-        {offer.requiredAssets.map((a) => {
-          const current = state.assets[a.id];
-          const w = a.width ?? 0;
-          const h = a.height ?? 0;
-          const canGenerate = !!a.aiGenerable && w > 0 && h > 0;
-          return (
-            <div key={a.id} className={styles.card}>
-              <div className={styles.head}>
-                <Body1Strong>{a.label}</Body1Strong>
-                <Badge appearance="tint" color={a.required ? 'danger' : 'informative'} size="small">
-                  {a.required ? 'required' : 'optional'}
-                </Badge>
-              </div>
-              <Caption1 className={styles.meta}>
-                {w > 0 && h > 0 ? `${w}×${h}px · ` : ''}
-                {a.format.toUpperCase()}
-                {a.maxCount ? ` · up to ${a.maxCount}` : ''}
-              </Caption1>
-              {a.notes && <Caption1 className={styles.meta}>{a.notes}</Caption1>}
-
-              <div className={styles.preview}>
-                {current ? (
-                  <img className="asset-thumb" src={current} alt={`${a.label} preview`} />
-                ) : (
-                  <Caption1 className={styles.empty}>No image yet</Caption1>
-                )}
-              </div>
-
-              <div className={styles.actions}>
-                <Button
-                  size="small"
-                  icon={<ArrowUpload20Regular />}
-                  disabled={!!busy[a.id]}
-                  onClick={() => pickImage((file) => handleUpload(a.id, w || 512, h || 512, file))}
-                >
-                  Upload
-                </Button>
-                {canGenerate && (
-                  <Button
-                    size="small"
-                    appearance="primary"
-                    icon={busy[a.id] ? <Spinner size="tiny" /> : <Sparkle20Regular />}
-                    disabled={!!busy[a.id] || !aiReady}
-                    onClick={() => handleGenerate(a.id, a.label, a.notes, w, h)}
-                  >
-                    {current ? 'Refine with AI' : 'Generate'}
-                  </Button>
-                )}
-                {current && (
-                  <>
-                    <Button
-                      size="small"
-                      appearance="subtle"
-                      icon={<ArrowDownload20Regular />}
-                      onClick={() => downloadDataUrl(current, `${a.id}.png`)}
-                    >
-                      Download
-                    </Button>
-                    <Button
-                      size="small"
-                      appearance="subtle"
-                      icon={<Delete20Regular />}
-                      onClick={() => dispatch({ type: 'REMOVE_ASSET', specId: a.id })}
-                    >
-                      Remove
-                    </Button>
-                  </>
-                )}
-              </div>
-
-              {errors[a.id] && (
-                <MessageBar intent="error">
-                  <MessageBarBody>{errors[a.id]}</MessageBarBody>
-                </MessageBar>
-              )}
-            </div>
-          );
-        })}
+      <div className={styles.groupHead}>
+        <Body1Strong>Required assets</Body1Strong>
+        <Badge appearance="tint" color="danger" size="small">
+          {requiredAssets.length}
+        </Badge>
       </div>
+      <Caption1 className={styles.groupHint}>
+        These images must be supplied before you can publish the offer.
+      </Caption1>
+      <div className={styles.grid}>{requiredAssets.map(renderCard)}</div>
+
+      {optionalAssets.length > 0 && (
+        <>
+          <div className={styles.groupHead}>
+            <Body1Strong>Optional assets</Body1Strong>
+            <Badge appearance="tint" color="informative" size="small">
+              {optionalAssets.length}
+            </Badge>
+          </div>
+          <Caption1 className={styles.groupHint}>
+            Recommended extras that strengthen your listing but aren't required.
+          </Caption1>
+          <div className={styles.grid}>{optionalAssets.map(renderCard)}</div>
+        </>
+      )}
     </div>
   );
 }
