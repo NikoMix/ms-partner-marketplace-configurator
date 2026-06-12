@@ -5,6 +5,7 @@ import {
   DEFAULT_BASE_PROMPT,
   DEFAULT_FIELD_PROMPTS,
   DEFAULT_REFINE_PROMPT,
+  DEFAULT_COACH_PROMPT,
   type AiSettings
 } from '../ai/prompts';
 
@@ -43,6 +44,7 @@ export interface PlanConfig {
 export interface SystemPrompts {
   base: string;
   refine: string;
+  coach: string;
   fields: Record<string, string>;
 }
 
@@ -68,6 +70,7 @@ export interface WizardState {
 const initialPrompts: SystemPrompts = {
   base: DEFAULT_BASE_PROMPT,
   refine: DEFAULT_REFINE_PROMPT,
+  coach: DEFAULT_COACH_PROMPT,
   fields: { ...DEFAULT_FIELD_PROMPTS }
 };
 
@@ -106,6 +109,7 @@ type Action =
   | { type: 'SET_AI'; ai: Partial<AiSettings> }
   | { type: 'SET_BASE_PROMPT'; value: string }
   | { type: 'SET_REFINE_PROMPT'; value: string }
+  | { type: 'SET_COACH_PROMPT'; value: string }
   | { type: 'SET_FIELD_PROMPT'; fieldId: string; value: string }
   | { type: 'RESET_PROMPTS' }
   | { type: 'RESET_ALL' }
@@ -177,6 +181,8 @@ function reducer(state: WizardState, action: Action): WizardState {
       return { ...state, prompts: { ...state.prompts, base: action.value } };
     case 'SET_REFINE_PROMPT':
       return { ...state, prompts: { ...state.prompts, refine: action.value } };
+    case 'SET_COACH_PROMPT':
+      return { ...state, prompts: { ...state.prompts, coach: action.value } };
     case 'SET_FIELD_PROMPT':
       return {
         ...state,
@@ -191,6 +197,7 @@ function reducer(state: WizardState, action: Action): WizardState {
         prompts: {
           base: DEFAULT_BASE_PROMPT,
           refine: DEFAULT_REFINE_PROMPT,
+          coach: DEFAULT_COACH_PROMPT,
           fields: { ...DEFAULT_FIELD_PROMPTS }
         }
       };
@@ -212,6 +219,7 @@ function reducer(state: WizardState, action: Action): WizardState {
         prompts: {
           base: DEFAULT_BASE_PROMPT,
           refine: DEFAULT_REFINE_PROMPT,
+          coach: DEFAULT_COACH_PROMPT,
           fields: { ...DEFAULT_FIELD_PROMPTS }
         }
       };
@@ -247,6 +255,7 @@ function loadPersisted(): WizardState | undefined {
       prompts: {
         base: parsed.prompts?.base ?? initialState.prompts.base,
         refine: parsed.prompts?.refine ?? initialState.prompts.refine,
+        coach: parsed.prompts?.coach ?? initialState.prompts.coach,
         fields: { ...initialState.prompts.fields, ...(parsed.prompts?.fields ?? {}) }
       }
     };

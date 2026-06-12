@@ -1,10 +1,10 @@
 import { Button, Title2, Body1, Body1Strong, makeStyles, tokens } from '@fluentui/react-components';
 import {
   ArrowRight20Regular,
-  Sparkle24Regular,
-  Image24Regular,
-  ArrowDownload24Regular,
-  Grid24Regular
+  Sparkle32Regular,
+  Image32Regular,
+  ArrowDownload32Regular,
+  Apps32Regular
 } from '@fluentui/react-icons';
 import type { ReactNode } from 'react';
 import { useWizard } from '../state/WizardContext';
@@ -14,19 +14,24 @@ const useStyles = makeStyles({
   lead: { fontSize: '18px', lineHeight: '1.6', color: '#242424', marginTop: '8px' },
   features: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-    gap: '16px',
-    marginTop: '28px'
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '20px',
+    marginTop: '28px',
+    '@media (max-width: 640px)': {
+      gridTemplateColumns: '1fr'
+    }
   },
   feature: {
     display: 'flex',
-    gap: '12px',
-    padding: '16px',
-    borderRadius: '8px',
+    gap: '16px',
+    padding: '24px',
+    borderRadius: '10px',
     border: `1px solid ${tokens.colorNeutralStroke2}`,
-    backgroundColor: tokens.colorNeutralBackground1
+    backgroundColor: tokens.colorNeutralBackground1,
+    alignItems: 'flex-start'
   },
   featureIcon: { color: '#0067b8', flexShrink: 0 },
+  featureTitle: { fontSize: '16px', marginBottom: '4px' },
   cta: {
     marginTop: '32px',
     display: 'flex',
@@ -45,22 +50,22 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    icon: <Grid24Regular />,
+    icon: <Apps32Regular />,
     title: 'Pick the right offer type',
     body: 'Answer a few questions and get a recommended Partner Center offer type with its publishing requirements.'
   },
   {
-    icon: <Sparkle24Regular />,
+    icon: <Sparkle32Regular />,
     title: 'AI-assisted listing copy',
     body: 'Draft and refine your search summary, descriptions and keywords with GitHub Models — bring your own token.'
   },
   {
-    icon: <Image24Regular />,
+    icon: <Image32Regular />,
     title: 'Generate marketplace assets',
     body: 'Create correctly sized logos, screenshots and hero images, or upload and auto-resize your own.'
   },
   {
-    icon: <ArrowDownload24Regular />,
+    icon: <ArrowDownload32Regular />,
     title: 'Billing starter template',
     body: 'Download a ready-to-extend ZIP for SaaS metering, Azure app/VM/container billing and pricing.'
   }
@@ -87,7 +92,7 @@ export function WelcomeStep() {
           <div key={f.title} className={styles.feature}>
             <div className={styles.featureIcon}>{f.icon}</div>
             <div>
-              <Body1Strong block>{f.title}</Body1Strong>
+              <Body1Strong block className={styles.featureTitle}>{f.title}</Body1Strong>
               <Body1 block>{f.body}</Body1>
             </div>
           </div>

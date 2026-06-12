@@ -73,6 +73,7 @@ export function OverviewStep() {
                 key={id}
                 ariaLabel={lo.label}
                 selected={state.listingOptionId === id}
+                dimmed={state.listingOptionId !== undefined && state.listingOptionId !== id}
                 onSelect={() => dispatch({ type: 'SET_LISTING_OPTION', listingOptionId: id })}
               >
                 <div className={styles.cardInner}>

@@ -296,6 +296,18 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               />
             </AccordionPanel>
           </AccordionItem>
+          <AccordionItem value="coach">
+            <AccordionHeader>Coach prompt (tips, doesn't rewrite)</AccordionHeader>
+            <AccordionPanel>
+              <Textarea
+                className={s.promptArea}
+                resize="vertical"
+                rows={4}
+                value={prompts.coach}
+                onChange={(_, d) => dispatch({ type: 'SET_COACH_PROMPT', value: d.value })}
+              />
+            </AccordionPanel>
+          </AccordionItem>
           {Object.keys(DEFAULT_FIELD_PROMPTS).map((fieldId) => (
             <AccordionItem value={fieldId} key={fieldId}>
               <AccordionHeader>{FIELD_LABELS[fieldId] ?? fieldId}</AccordionHeader>

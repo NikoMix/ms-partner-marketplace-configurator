@@ -37,6 +37,8 @@ export interface RequiredField {
   aiAssist?: boolean;
   maxLength?: number;
   multiline?: boolean;
+  /** Render a rich-text editor (write/preview + HTML formatting) for this field. */
+  richText?: boolean;
 }
 
 export type Transactability = 'yes' | 'no' | 'via-saas';

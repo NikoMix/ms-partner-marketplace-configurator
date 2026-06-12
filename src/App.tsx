@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, makeStyles } from '@fluentui/react-components';
-import { ArrowLeft20Regular, ArrowRight20Regular } from '@fluentui/react-icons';
+import { ArrowLeft20Regular, ArrowRight20Regular, ArrowReset20Regular } from '@fluentui/react-icons';
 import { TopBar } from './components/TopBar';
 import { HeroHeader } from './components/HeroHeader';
 import { Stepper } from './components/Stepper';
@@ -23,6 +23,7 @@ const useStyles = makeStyles({
     paddingTop: '20px',
     borderTop: '1px solid #e1dfdd'
   },
+  leftGroup: { display: 'flex', gap: '12px', alignItems: 'center' },
   spacer: { flex: 1 }
 });
 
@@ -113,6 +114,12 @@ export function App() {
     return true;
   }
 
+  function resetAll() {
+    if (window.confirm('Start over? This resets the wizard. Your AI settings and prompts are kept.')) {
+      dispatch({ type: 'RESET_ALL' });
+    }
+  }
+
   return (
     <>
       <TopBar onOpenSettings={() => setSettingsOpen(true)} onHome={() => dispatch({ type: 'GO_TO', index: 0 })} />
@@ -130,9 +137,16 @@ export function App() {
 
           {!isFirst && (
             <div className={styles.nav}>
-              <Button appearance="secondary" icon={<ArrowLeft20Regular />} onClick={() => dispatch({ type: 'BACK' })}>
-                Back
-              </Button>
+              <div className={styles.leftGroup}>
+                <Button appearance="secondary" icon={<ArrowLeft20Regular />} onClick={() => dispatch({ type: 'BACK' })}>
+                  Back
+                </Button>
+                {isSummary && (
+                  <Button appearance="subtle" icon={<ArrowReset20Regular />} onClick={resetAll}>
+                    Start over
+                  </Button>
+                )}
+              </div>
               <div className={styles.spacer} />
               {!isSummary && (
                 <Button

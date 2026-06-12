@@ -16,7 +16,6 @@ import {
 import {
   ArrowDownload20Regular,
   DocumentText20Regular,
-  ArrowReset20Regular,
   CheckmarkCircle20Regular
 } from '@fluentui/react-icons';
 import { useWizard } from '../state/WizardContext';
@@ -151,12 +150,6 @@ export function SummaryStep() {
     }
   }
 
-  function resetAll() {
-    if (window.confirm('Reset the entire wizard? Your AI settings and prompts are kept.')) {
-      dispatch({ type: 'RESET_ALL' });
-    }
-  }
-
   const filledFields = offer.requiredFields.filter((f) => (state.fieldValues[f.id] ?? '').trim()).length;
   const requiredAssets = offer.requiredAssets.filter((a) => a.required);
   const providedRequired = requiredAssets.filter((a) => state.assets[a.id]).length;
@@ -243,9 +236,6 @@ export function SummaryStep() {
         </Button>
         <Button icon={<DocumentText20Regular />} onClick={exportJson}>
           Export plan JSON
-        </Button>
-        <Button appearance="subtle" icon={<ArrowReset20Regular />} onClick={resetAll}>
-          Start over
         </Button>
       </div>
 

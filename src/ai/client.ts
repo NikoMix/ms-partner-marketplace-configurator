@@ -122,6 +122,35 @@ export async function refineFieldCopy(
   );
 }
 
+export interface CoachCopyRequest {
+  basePrompt: string;
+  coachPrompt: string;
+  fieldPrompt: string;
+  current: string;
+  context: string;
+}
+
+/**
+ * Non-destructive coaching: returns improvement tips/questions about the
+ * current draft without rewriting it.
+ */
+export async function coachFieldCopy(
+  ai: AiSettings,
+  req: CoachCopyRequest
+): Promise<string> {
+  const system = `${req.basePrompt}\n\nField goal for reference:\n${req.fieldPrompt}\n\n${req.coachPrompt}`;
+  const draft = req.current.trim() || '(the field is currently empty)';
+  const user = `${req.context}\n\nCurrent draft to coach:\n"""\n${draft}\n"""`;
+  return chat(
+    ai,
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user }
+    ],
+    { temperature: 0.5 }
+  );
+}
+
 export interface ImageRequest {
   prompt: string;
   width: number;

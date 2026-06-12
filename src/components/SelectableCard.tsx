@@ -13,17 +13,23 @@ const useStyles = makeStyles({
     fontFamily: 'inherit',
     color: 'inherit',
     cursor: 'pointer'
+  },
+  dimmed: {
+    opacity: 0.45,
+    filter: 'grayscale(0.6)'
   }
 });
 
 interface SelectableCardProps {
   selected?: boolean;
+  /** Visually de-emphasise an unselected option (single-select clarity). Stays clickable. */
+  dimmed?: boolean;
   onSelect: () => void;
   children: ReactNode;
   ariaLabel?: string;
 }
 
-export function SelectableCard({ selected, onSelect, children, ariaLabel }: SelectableCardProps) {
+export function SelectableCard({ selected, dimmed, onSelect, children, ariaLabel }: SelectableCardProps) {
   const styles = useStyles();
   return (
     <button
@@ -31,7 +37,7 @@ export function SelectableCard({ selected, onSelect, children, ariaLabel }: Sele
       aria-pressed={selected}
       aria-label={ariaLabel}
       data-selected={selected ? 'true' : 'false'}
-      className={mergeClasses(styles.card, 'selectable-card')}
+      className={mergeClasses(styles.card, 'selectable-card', dimmed && styles.dimmed)}
       onClick={onSelect}
     >
       {children}

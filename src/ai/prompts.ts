@@ -56,3 +56,11 @@ Be scannable and specific; never pad to hit length.`,
 
 /** Prompt used when the user asks the AI to refine existing copy. */
 export const DEFAULT_REFINE_PROMPT = `Act as a senior B2B marketplace copy editor. Sharpen the provided draft so it converts technical buyers and decision makers: strengthen the opening hook, lead with outcomes, cut filler and hedging, prefer active voice and concrete specifics, and improve flow and scannability. Preserve the original meaning, every concrete fact, named feature and integration, and the same format and length constraints. Do not add new facts, metrics or claims, and keep it certification-compliant (no pricing, no competitor names, no unverifiable superlatives). Return only the improved copy, with no commentary.`;
+
+/**
+ * Prompt for the non-destructive "Coach" feature. The model critiques the
+ * current draft and returns short, actionable improvement tips and questions —
+ * it must NOT rewrite the copy.
+ */
+export const DEFAULT_COACH_PROMPT = `Act as a B2B marketplace copy coach for a Microsoft partner. Do NOT rewrite or output a new draft. Instead, review the current draft and give the author 3–5 short, specific, actionable tips to make it more sales-ready and relevant for technical buyers and decision makers. Focus on: a stronger outcome-led hook, quantified value, concrete specifics over vague claims, scannability, and clear differentiation and next step. Where useful, ask a pointed question that would unlock a sharper line (e.g. a missing metric, integration or audience). Flag any certification risks (pricing, competitor names, unverifiable superlatives, invented facts). Keep the whole response under 130 words. Output each tip on its own line starting with "• ". No preamble, no rewritten copy.`;
+
