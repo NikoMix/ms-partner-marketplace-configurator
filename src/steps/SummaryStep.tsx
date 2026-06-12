@@ -16,11 +16,14 @@ import {
 import {
   ArrowDownload20Regular,
   DocumentText20Regular,
-  CheckmarkCircle20Regular
+  CheckmarkCircle20Regular,
+  Share20Regular,
+  Checkmark20Regular
 } from '@fluentui/react-icons';
 import { useWizard } from '../state/WizardContext';
 import { getOfferType } from '../data/catalog';
 import { LISTING_OPTIONS } from '../data/types';
+import { buildShareLink } from '../state/offerImport';
 import { buildProjectZip, triggerDownload } from '../zip/templates';
 import type { ProjectAsset, BillingZipContext, PlanSummary } from '../zip/templates';
 
@@ -53,6 +56,7 @@ export function SummaryStep() {
 
   const [zipBusy, setZipBusy] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   if (!offer) {
     return (
@@ -150,6 +154,19 @@ export function SummaryStep() {
     }
   }
 
+  async function copyShareLink() {
+    setError('');
+    try {
+      const link = buildShareLink(state);
+      if (!link) return;
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Could not copy the shareable link.');
+    }
+  }
+
   const filledFields = offer.requiredFields.filter((f) => (state.fieldValues[f.id] ?? '').trim()).length;
   const requiredAssets = offer.requiredAssets.filter((a) => a.required);
   const providedRequired = requiredAssets.filter((a) => state.assets[a.id]).length;
@@ -237,7 +254,15 @@ export function SummaryStep() {
         <Button icon={<DocumentText20Regular />} onClick={exportJson}>
           Export plan JSON
         </Button>
+        <Button icon={copied ? <Checkmark20Regular /> : <Share20Regular />} onClick={copyShareLink}>
+          {copied ? 'Link copied' : 'Copy shareable link'}
+        </Button>
       </div>
+
+      <Caption1 className={styles.meta} style={{ marginTop: '8px', display: 'block' }}>
+        The shareable link reopens this wizard with your offering pre-filled and jumps to the first
+        step that still needs input. Generated assets aren&apos;t included in the link.
+      </Caption1>
 
       {error && (
         <MessageBar intent="error" style={{ marginTop: '12px' }}>

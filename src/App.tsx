@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Button, makeStyles } from '@fluentui/react-components';
-import { ArrowLeft20Regular, ArrowRight20Regular, ArrowReset20Regular } from '@fluentui/react-icons';
+import {
+  Button,
+  makeStyles,
+  MessageBar,
+  MessageBarActions,
+  MessageBarBody,
+  MessageBarTitle
+} from '@fluentui/react-components';
+import { ArrowLeft20Regular, ArrowRight20Regular, ArrowReset20Regular, Dismiss20Regular } from '@fluentui/react-icons';
 import { TopBar } from './components/TopBar';
 import { HeroHeader } from './components/HeroHeader';
 import { Stepper } from './components/Stepper';
@@ -98,10 +105,42 @@ export function App() {
   const styles = useStyles();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [maxReached, setMaxReached] = useState(0);
+  const [importedNotice, setImportedNotice] = useState(false);
 
   useEffect(() => {
     setMaxReached((m) => Math.max(m, state.stepIndex));
   }, [state.stepIndex]);
+
+  // One-time: surface a confirmation if the wizard was opened from an offering
+  // deep link, and strip the payload from the URL so refresh/back won't re-run
+  // the import or leak a large query string.
+  useEffect(() => {
+    let imported = false;
+    try {
+      imported = sessionStorage.getItem('mp-wizard-imported') === '1';
+      if (imported) sessionStorage.removeItem('mp-wizard-imported');
+    } catch {
+      /* ignore */
+    }
+    if (imported) setImportedNotice(true);
+    try {
+      const url = new URL(window.location.href);
+      let changed = false;
+      if (url.searchParams.has('offer')) {
+        url.searchParams.delete('offer');
+        changed = true;
+      }
+      if (url.hash && url.hash.includes('offer=')) {
+        url.hash = '';
+        changed = true;
+      }
+      if (changed) {
+        window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const stepId = STEPS[state.stepIndex].id;
   const hero = HERO[stepId] ?? HERO.welcome;
@@ -127,6 +166,24 @@ export function App() {
 
       <main className="content-area">
         <div className="page-shell">
+          {importedNotice && (
+            <MessageBar intent="success" style={{ marginBottom: '16px' }}>
+              <MessageBarBody>
+                <MessageBarTitle>Offering imported</MessageBarTitle>
+                We loaded your offering details and jumped to the first step that still needs input.
+              </MessageBarBody>
+              <MessageBarActions
+                containerAction={
+                  <Button
+                    appearance="transparent"
+                    icon={<Dismiss20Regular />}
+                    aria-label="Dismiss"
+                    onClick={() => setImportedNotice(false)}
+                  />
+                }
+              />
+            </MessageBar>
+          )}
           <Stepper
             current={state.stepIndex}
             maxReached={maxReached}
