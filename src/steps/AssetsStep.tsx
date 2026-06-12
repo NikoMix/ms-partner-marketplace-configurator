@@ -116,6 +116,7 @@ export function AssetsStep() {
   const { state, dispatch } = useWizard();
   const styles = useStyles();
   const offer = state.offerTypeId ? getOfferType(state.offerTypeId) : undefined;
+  const aiReady = Boolean(state.ai.token.trim());
 
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -196,6 +197,14 @@ export function AssetsStep() {
         Settings.
       </Body1>
 
+      {!aiReady && (
+        <MessageBar intent="info" style={{ marginTop: '12px' }}>
+          <MessageBarBody>
+            Sign in with GitHub or add a token in Settings to enable AI image generation.
+          </MessageBarBody>
+        </MessageBar>
+      )}
+
       <div className={styles.grid}>
         {offer.requiredAssets.map((a) => {
           const current = state.assets[a.id];
@@ -239,7 +248,7 @@ export function AssetsStep() {
                     size="small"
                     appearance="primary"
                     icon={busy[a.id] ? <Spinner size="tiny" /> : <Sparkle20Regular />}
-                    disabled={!!busy[a.id]}
+                    disabled={!!busy[a.id] || !aiReady}
                     onClick={() => handleGenerate(a.id, a.label, a.notes, w, h)}
                   >
                     {current ? 'Refine with AI' : 'Generate'}

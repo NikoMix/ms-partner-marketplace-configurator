@@ -21,6 +21,18 @@ function trimEndpoint(endpoint: string): string {
   return endpoint.replace(/\/+$/, '');
 }
 
+/**
+ * Next-generation OpenAI models (gpt-5 family and the o-series reasoning
+ * models) reject the legacy `max_tokens` parameter and require
+ * `max_completion_tokens` instead. They also only accept the default
+ * `temperature` (1), so a custom temperature must be omitted. Detect them by
+ * model id (after stripping any `openai/` publisher prefix).
+ */
+function isNextGenModel(model: string): boolean {
+  const id = model.replace(/^.*\//, '').toLowerCase();
+  return /^(o\d|gpt-5)/.test(id);
+}
+
 export async function chat(
   ai: AiSettings,
   messages: ChatMessage[],
@@ -36,6 +48,21 @@ export async function chat(
   }
 
   const url = `${trimEndpoint(ai.endpoint)}/chat/completions`;
+  const nextGen = isNextGenModel(ai.model);
+  const body: Record<string, unknown> = {
+    model: ai.model,
+    messages
+  };
+  if (nextGen) {
+    // gpt-5 / o-series: legacy `max_tokens` is rejected and a custom
+    // `temperature` is unsupported. Reasoning tokens also consume the budget,
+    // so use a higher floor to avoid empty visible completions.
+    body.max_completion_tokens = opts.maxTokens ?? 4000;
+  } else {
+    body.temperature = opts.temperature ?? 0.7;
+    body.max_tokens = opts.maxTokens ?? 1200;
+  }
+
   let res: Response;
   try {
     res = await fetch(url, {
@@ -44,12 +71,7 @@ export async function chat(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${ai.token}`
       },
-      body: JSON.stringify({
-        model: ai.model,
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.maxTokens ?? 1200
-      })
+      body: JSON.stringify(body)
     });
   } catch (err) {
     throw new AiError(
