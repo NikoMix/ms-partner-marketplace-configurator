@@ -182,7 +182,8 @@ export const BASE_LISTING_FIELDS: RequiredField[] = [
       'The full listing description (supports basic HTML). Explain the value proposition, key features and target customers.',
     aiAssist: true,
     maxLength: 3000,
-    multiline: true
+    multiline: true,
+    richText: true
   },
   {
     id: 'searchKeywords',

@@ -1,4 +1,4 @@
-import { makeStyles, tokens } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import { CheckmarkRegular } from '@fluentui/react-icons';
 import { STEPS } from '../state/WizardContext';
 
@@ -91,24 +91,24 @@ export function Stepper({ current, maxReached, onJump }: StepperProps) {
         return (
           <div
             key={step.id}
-            className={`${s.step} ${reachable ? s.clickable : ''}`}
+            className={mergeClasses(s.step, reachable && s.clickable)}
             onClick={reachable ? () => onJump(i) : undefined}
             role={reachable ? 'button' : undefined}
             aria-current={active ? 'step' : undefined}
           >
             {i > 0 && (
               <span
-                className={`${s.connector} ${i <= current ? s.connectorDone : ''}`}
+                className={mergeClasses(s.connector, i <= current && s.connectorDone)}
                 style={{ right: '50%', width: 'calc(100% - 15px)' }}
                 aria-hidden
               />
             )}
             <span
-              className={`${s.circle} ${active ? s.circleActive : ''} ${done ? s.circleDone : ''}`}
+              className={mergeClasses(s.circle, active && s.circleActive, done && s.circleDone)}
             >
               {done ? <CheckmarkRegular /> : i + 1}
             </span>
-            <span className={`${s.label} ${active ? s.labelActive : ''}`}>{step.label}</span>
+            <span className={mergeClasses(s.label, active && s.labelActive)}>{step.label}</span>
           </div>
         );
       })}

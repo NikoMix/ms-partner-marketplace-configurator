@@ -9,15 +9,22 @@ import {
   Caption1,
   MessageBar,
   MessageBarBody,
+  MessageBarActions,
   Spinner,
   makeStyles,
   tokens
 } from '@fluentui/react-components';
-import { Sparkle20Regular, ArrowClockwise20Regular } from '@fluentui/react-icons';
+import {
+  Sparkle20Regular,
+  ArrowClockwise20Regular,
+  Lightbulb20Regular,
+  Dismiss20Regular
+} from '@fluentui/react-icons';
 import { useWizard } from '../state/WizardContext';
 import { getOfferType } from '../data/catalog';
 import { LISTING_OPTIONS } from '../data/types';
-import { generateFieldCopy, refineFieldCopy, AiError } from '../ai/client';
+import { generateFieldCopy, refineFieldCopy, coachFieldCopy, AiError } from '../ai/client';
+import { RichTextField } from '../components/RichTextField';
 
 const useStyles = makeStyles({
   field: {
@@ -33,7 +40,8 @@ const useStyles = makeStyles({
   labelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px' },
   aiRow: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' },
   counter: { color: tokens.colorNeutralForeground3, whiteSpace: 'nowrap' },
-  desc: { color: tokens.colorNeutralForeground3 }
+  desc: { color: tokens.colorNeutralForeground3 },
+  coachBody: { whiteSpace: 'pre-wrap' }
 });
 
 export function ListingStep() {
@@ -43,6 +51,8 @@ export function ListingStep() {
 
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [coachBusy, setCoachBusy] = useState<Record<string, boolean>>({});
+  const [coachTips, setCoachTips] = useState<Record<string, string>>({});
 
   if (!offer) {
     return (
@@ -112,6 +122,25 @@ export function ListingStep() {
     }
   }
 
+  async function runCoach(fieldId: string) {
+    setErrors((e) => ({ ...e, [fieldId]: '' }));
+    setCoachBusy((b) => ({ ...b, [fieldId]: true }));
+    try {
+      const tips = await coachFieldCopy(state.ai, {
+        basePrompt: state.prompts.base,
+        coachPrompt: state.prompts.coach,
+        fieldPrompt: state.prompts.fields[fieldId] ?? '',
+        current: state.fieldValues[fieldId] ?? '',
+        context: buildContext(fieldId)
+      });
+      setCoachTips((t) => ({ ...t, [fieldId]: tips.trim() }));
+    } catch (err) {
+      setErrors((e) => ({ ...e, [fieldId]: err instanceof AiError ? err.message : 'Coach failed.' }));
+    } finally {
+      setCoachBusy((b) => ({ ...b, [fieldId]: false }));
+    }
+  }
+
   return (
     <div className="step-body">
       <Title3 as="h2">Listing details</Title3>
@@ -136,7 +165,13 @@ export function ListingStep() {
               {f.description && <Caption1 className={styles.desc}>{f.description}</Caption1>}
 
               <Field>
-                {f.multiline ? (
+                {f.richText ? (
+                  <RichTextField
+                    value={value}
+                    maxLength={f.maxLength}
+                    onChange={(v) => dispatch({ type: 'SET_FIELD', fieldId: f.id, value: v })}
+                  />
+                ) : f.multiline ? (
                   <Textarea
                     value={value}
                     resize="vertical"
@@ -171,7 +206,34 @@ export function ListingStep() {
                   >
                     Refine
                   </Button>
+                  {f.multiline && (
+                    <Button
+                      size="small"
+                      appearance="subtle"
+                      icon={coachBusy[f.id] ? <Spinner size="tiny" /> : <Lightbulb20Regular />}
+                      disabled={!!coachBusy[f.id]}
+                      onClick={() => runCoach(f.id)}
+                    >
+                      Coach
+                    </Button>
+                  )}
                 </div>
+              )}
+
+              {coachTips[f.id] && (
+                <MessageBar intent="info">
+                  <MessageBarBody className={styles.coachBody}>{coachTips[f.id]}</MessageBarBody>
+                  <MessageBarActions
+                    containerAction={
+                      <Button
+                        appearance="transparent"
+                        aria-label="Dismiss coaching tips"
+                        icon={<Dismiss20Regular />}
+                        onClick={() => setCoachTips((t) => ({ ...t, [f.id]: '' }))}
+                      />
+                    }
+                  />
+                </MessageBar>
               )}
 
               {errors[f.id] && (

@@ -37,9 +37,14 @@ export interface RequiredField {
   aiAssist?: boolean;
   maxLength?: number;
   multiline?: boolean;
+  /** Render a rich-text editor (write/preview + HTML formatting) for this field. */
+  richText?: boolean;
 }
 
 export type Transactability = 'yes' | 'no' | 'via-saas';
+
+/** Implementation language for the generated billing/webhook starter. */
+export type BillingLanguage = 'node' | 'csharp';
 
 export type BillingZipKind =
   | 'saas-metered'

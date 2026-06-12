@@ -15,6 +15,8 @@ import {
   MessageBar,
   MessageBarBody,
   Spinner,
+  RadioGroup,
+  Radio,
   makeStyles,
   tokens
 } from '@fluentui/react-components';
@@ -23,6 +25,9 @@ import { useWizard } from '../state/WizardContext';
 import { getOfferType } from '../data/catalog';
 import { buildBillingZip, triggerDownload } from '../zip/templates';
 import type { PlanSummary } from '../zip/templates';
+import type { BillingLanguage } from '../data/types';
+
+const CODE_EMITTING_KINDS = ['saas-metered', 'saas-subscription', 'azure-app', 'azure-container'];
 
 const useStyles = makeStyles({
   section: { display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' },
@@ -126,7 +131,8 @@ export function BillingStep() {
         offerTypeName: offer!.name,
         billingZipKind: offer!.billingZipKind,
         billingModelLabels,
-        plans
+        plans,
+        language: state.billingLanguage
       });
       triggerDownload(blob, `${slugify(offerName)}-billing-starter.zip`);
     } catch {
@@ -257,6 +263,19 @@ export function BillingStep() {
       </div>
 
       <Divider />
+
+      {CODE_EMITTING_KINDS.includes(offer.billingZipKind) && (
+        <Field label="Implementation language for billing/webhook code" style={{ marginBottom: '8px' }}>
+          <RadioGroup
+            layout="horizontal"
+            value={state.billingLanguage}
+            onChange={(_, d) => dispatch({ type: 'SET_BILLING_LANGUAGE', language: d.value as BillingLanguage })}
+          >
+            <Radio value="node" label="Node.js (Express)" />
+            <Radio value="csharp" label="C# (.NET 8)" />
+          </RadioGroup>
+        </Field>
+      )}
 
       <div className={styles.zipRow}>
         <Button

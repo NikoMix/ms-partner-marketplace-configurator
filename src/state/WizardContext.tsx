@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react';
-import type { ListingOptionId } from '../data/types';
+import type { ListingOptionId, BillingLanguage } from '../data/types';
 import {
   DEFAULT_AI_SETTINGS,
   DEFAULT_BASE_PROMPT,
   DEFAULT_FIELD_PROMPTS,
   DEFAULT_REFINE_PROMPT,
+  DEFAULT_COACH_PROMPT,
   type AiSettings
 } from '../ai/prompts';
 
@@ -43,6 +44,7 @@ export interface PlanConfig {
 export interface SystemPrompts {
   base: string;
   refine: string;
+  coach: string;
   fields: Record<string, string>;
 }
 
@@ -57,6 +59,8 @@ export interface WizardState {
   fieldValues: Record<string, string>;
   selectedBillingModelIds: string[];
   plans: PlanConfig[];
+  /** Implementation language for generated billing/webhook starter code */
+  billingLanguage: BillingLanguage;
   /** asset spec id -> data URL (PNG) */
   assets: Record<string, string>;
   ai: AiSettings;
@@ -66,6 +70,7 @@ export interface WizardState {
 const initialPrompts: SystemPrompts = {
   base: DEFAULT_BASE_PROMPT,
   refine: DEFAULT_REFINE_PROMPT,
+  coach: DEFAULT_COACH_PROMPT,
   fields: { ...DEFAULT_FIELD_PROMPTS }
 };
 
@@ -75,6 +80,7 @@ const initialState: WizardState = {
   fieldValues: {},
   selectedBillingModelIds: [],
   plans: [],
+  billingLanguage: 'node',
   assets: {},
   ai: { ...DEFAULT_AI_SETTINGS },
   prompts: initialPrompts
@@ -94,6 +100,7 @@ type Action =
   | { type: 'SET_LISTING_OPTION'; listingOptionId: ListingOptionId }
   | { type: 'SET_FIELD'; fieldId: string; value: string }
   | { type: 'TOGGLE_BILLING'; billingModelId: string }
+  | { type: 'SET_BILLING_LANGUAGE'; language: BillingLanguage }
   | { type: 'ADD_PLAN'; plan: PlanConfig }
   | { type: 'UPDATE_PLAN'; plan: PlanConfig }
   | { type: 'REMOVE_PLAN'; planId: string }
@@ -102,9 +109,11 @@ type Action =
   | { type: 'SET_AI'; ai: Partial<AiSettings> }
   | { type: 'SET_BASE_PROMPT'; value: string }
   | { type: 'SET_REFINE_PROMPT'; value: string }
+  | { type: 'SET_COACH_PROMPT'; value: string }
   | { type: 'SET_FIELD_PROMPT'; fieldId: string; value: string }
   | { type: 'RESET_PROMPTS' }
   | { type: 'RESET_ALL' }
+  | { type: 'CLEAR_ALL' }
   | { type: 'HYDRATE'; state: WizardState };
 
 const lastStep = STEPS.length - 1;
@@ -157,6 +166,8 @@ function reducer(state: WizardState, action: Action): WizardState {
       };
     case 'REMOVE_PLAN':
       return { ...state, plans: state.plans.filter((p) => p.id !== action.planId) };
+    case 'SET_BILLING_LANGUAGE':
+      return { ...state, billingLanguage: action.language };
     case 'SET_ASSET':
       return { ...state, assets: { ...state.assets, [action.specId]: action.dataUrl } };
     case 'REMOVE_ASSET': {
@@ -170,6 +181,8 @@ function reducer(state: WizardState, action: Action): WizardState {
       return { ...state, prompts: { ...state.prompts, base: action.value } };
     case 'SET_REFINE_PROMPT':
       return { ...state, prompts: { ...state.prompts, refine: action.value } };
+    case 'SET_COACH_PROMPT':
+      return { ...state, prompts: { ...state.prompts, coach: action.value } };
     case 'SET_FIELD_PROMPT':
       return {
         ...state,
@@ -184,11 +197,32 @@ function reducer(state: WizardState, action: Action): WizardState {
         prompts: {
           base: DEFAULT_BASE_PROMPT,
           refine: DEFAULT_REFINE_PROMPT,
+          coach: DEFAULT_COACH_PROMPT,
           fields: { ...DEFAULT_FIELD_PROMPTS }
         }
       };
     case 'RESET_ALL':
       return { ...initialState, ai: state.ai, prompts: state.prompts };
+    case 'CLEAR_ALL':
+      // Wipe every locally stored value back to factory defaults, including the
+      // AI token and custom prompts. Used by the "Clear all locally stored data"
+      // control in Settings.
+      return {
+        stepIndex: 0,
+        answers: {},
+        fieldValues: {},
+        selectedBillingModelIds: [],
+        plans: [],
+        billingLanguage: 'node',
+        assets: {},
+        ai: { ...DEFAULT_AI_SETTINGS },
+        prompts: {
+          base: DEFAULT_BASE_PROMPT,
+          refine: DEFAULT_REFINE_PROMPT,
+          coach: DEFAULT_COACH_PROMPT,
+          fields: { ...DEFAULT_FIELD_PROMPTS }
+        }
+      };
     case 'HYDRATE':
       return action.state;
     default:
@@ -221,6 +255,7 @@ function loadPersisted(): WizardState | undefined {
       prompts: {
         base: parsed.prompts?.base ?? initialState.prompts.base,
         refine: parsed.prompts?.refine ?? initialState.prompts.refine,
+        coach: parsed.prompts?.coach ?? initialState.prompts.coach,
         fields: { ...initialState.prompts.fields, ...(parsed.prompts?.fields ?? {}) }
       }
     };
@@ -247,7 +282,15 @@ export function WizardProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
-      /* ignore quota / serialization errors */
+      // The full state (including generated/uploaded image data URLs) can exceed
+      // the localStorage quota. If that happens, persist everything except the
+      // heavy `assets` blob so text inputs — contact details, listing copy and
+      // plans — are still saved and don't need to be re-entered.
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, assets: {} }));
+      } catch {
+        /* give up silently */
+      }
     }
   }, [state]);
 

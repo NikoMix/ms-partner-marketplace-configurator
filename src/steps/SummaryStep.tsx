@@ -16,7 +16,6 @@ import {
 import {
   ArrowDownload20Regular,
   DocumentText20Regular,
-  ArrowReset20Regular,
   CheckmarkCircle20Regular
 } from '@fluentui/react-icons';
 import { useWizard } from '../state/WizardContext';
@@ -119,7 +118,8 @@ export function SummaryStep() {
       offerTypeName: offer!.name,
       billingZipKind: offer!.billingZipKind,
       billingModelLabels: selectedModels.map((b) => b.label),
-      plans
+      plans,
+      language: state.billingLanguage
     };
   }
 
@@ -147,12 +147,6 @@ export function SummaryStep() {
       setError('Could not build the project ZIP.');
     } finally {
       setZipBusy(false);
-    }
-  }
-
-  function resetAll() {
-    if (window.confirm('Reset the entire wizard? Your AI settings and prompts are kept.')) {
-      dispatch({ type: 'RESET_ALL' });
     }
   }
 
@@ -242,9 +236,6 @@ export function SummaryStep() {
         </Button>
         <Button icon={<DocumentText20Regular />} onClick={exportJson}>
           Export plan JSON
-        </Button>
-        <Button appearance="subtle" icon={<ArrowReset20Regular />} onClick={resetAll}>
-          Start over
         </Button>
       </div>
 
