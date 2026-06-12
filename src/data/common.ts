@@ -63,6 +63,141 @@ export const BILLING: Record<string, BillingModel> = {
 };
 
 // ---------------------------------------------------------------------------
+// Realistic starter plans per billing model. When a partner selects a billing
+// model in the wizard, these are auto-added as an editable starting point so
+// they don't face an empty pricing table. Prices are illustrative USD values.
+// ---------------------------------------------------------------------------
+
+export interface PlanTemplate {
+  name: string;
+  price: string;
+  cadence: string;
+  notes: string;
+}
+
+export const DEFAULT_PLAN_TEMPLATES: Record<string, PlanTemplate[]> = {
+  'per-user': [
+    {
+      name: 'Professional',
+      price: '12',
+      cadence: 'Monthly',
+      notes: 'Per-seat plan with the full feature set for individual teams. Email support and standard SLAs.'
+    },
+    {
+      name: 'Enterprise',
+      price: '120',
+      cadence: 'Annual',
+      notes:
+        'Annual per-seat commitment (roughly two months free vs. monthly) with SSO, advanced admin controls and priority support.'
+    }
+  ],
+  'flat-rate': [
+    {
+      name: 'Standard',
+      price: '499',
+      cadence: 'Monthly',
+      notes: 'Tenant-wide subscription covering unlimited users in one organization.'
+    },
+    {
+      name: 'Standard (Annual)',
+      price: '4990',
+      cadence: 'Annual',
+      notes: 'Annual tenant-wide subscription billed upfront — about two months free vs. monthly.'
+    }
+  ],
+  'usage-metered': [
+    {
+      name: 'Pay-as-you-go',
+      price: '0',
+      cadence: 'Metered usage',
+      notes:
+        'No monthly platform fee. Billed per unit reported to the Marketplace Metering Service — e.g. $0.10 per 1,000 API calls. Adjust the dimension and unit price to your costs.'
+    }
+  ],
+  'annual-contract': [
+    {
+      name: '1-year plan',
+      price: '9990',
+      cadence: '1 year',
+      notes: 'Committed one-year term billed upfront. A solid entry point for predictable workloads.'
+    },
+    {
+      name: '3-year plan',
+      price: '24990',
+      cadence: '3 year',
+      notes: 'Three-year committed term with the deepest discount and price protection.'
+    }
+  ],
+  'vm-core-hour': [
+    {
+      name: 'Per core-hour',
+      price: '0.05',
+      cadence: 'Metered usage',
+      notes:
+        'Software fee billed per core-hour on top of Azure VM compute (pay-as-you-go). Tune to your per-core value.'
+    }
+  ],
+  'vm-flat-monthly': [
+    {
+      name: 'Standard VM',
+      price: '99',
+      cadence: 'Monthly',
+      notes: 'Fixed monthly software fee per VM instance, independent of run time.'
+    }
+  ],
+  'vm-reservation': [
+    {
+      name: '1-year reservation',
+      price: '999',
+      cadence: '1 year',
+      notes: 'Reserved one-year pricing. Offer a BYOL variant at $0 for customers with existing licenses.'
+    },
+    {
+      name: '3-year reservation',
+      price: '2499',
+      cadence: '3 year',
+      notes: 'Reserved three-year pricing for maximum savings.'
+    }
+  ],
+  'container-usage': [
+    {
+      name: 'Per node-hour',
+      price: '0.10',
+      cadence: 'Metered usage',
+      notes:
+        'Metered per node-hour for the Kubernetes workload. Add core, pod or cluster dimensions as needed.'
+    }
+  ],
+  'linked-saas': [
+    {
+      name: 'Billed via linked SaaS offer',
+      price: '',
+      cadence: '',
+      notes:
+        'Pricing and billing are handled by the linked transactable SaaS offer. Configure plans on that offer instead.'
+    }
+  ]
+};
+
+/**
+ * Returns realistic starter plan templates for a billing model. Falls back to a
+ * single neutral plan (with a sensible cadence) for any model without a preset.
+ */
+export function buildDefaultPlans(model: BillingModel): PlanTemplate[] {
+  const templates = DEFAULT_PLAN_TEMPLATES[model.id];
+  if (templates) return templates.map((t) => ({ ...t }));
+  const cadence = model.cadences?.[0] ?? (model.metered ? 'Metered usage' : '');
+  return [
+    {
+      name: 'Standard',
+      price: '',
+      cadence,
+      notes: 'Describe what this plan includes for the customer.'
+    }
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Reusable asset specifications (Partner Center marketplace listing assets).
 // Dimensions reflect commonly required sizes — always confirm in Partner Center.
 // ---------------------------------------------------------------------------

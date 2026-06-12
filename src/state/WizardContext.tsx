@@ -104,6 +104,7 @@ type Action =
   | { type: 'ADD_PLAN'; plan: PlanConfig }
   | { type: 'UPDATE_PLAN'; plan: PlanConfig }
   | { type: 'REMOVE_PLAN'; planId: string }
+  | { type: 'SET_PLANS'; plans: PlanConfig[] }
   | { type: 'SET_ASSET'; specId: string; dataUrl: string }
   | { type: 'REMOVE_ASSET'; specId: string }
   | { type: 'SET_AI'; ai: Partial<AiSettings> }
@@ -166,6 +167,8 @@ function reducer(state: WizardState, action: Action): WizardState {
       };
     case 'REMOVE_PLAN':
       return { ...state, plans: state.plans.filter((p) => p.id !== action.planId) };
+    case 'SET_PLANS':
+      return { ...state, plans: action.plans };
     case 'SET_BILLING_LANGUAGE':
       return { ...state, billingLanguage: action.language };
     case 'SET_ASSET':
