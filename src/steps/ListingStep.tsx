@@ -48,6 +48,7 @@ export function ListingStep() {
   const { state, dispatch } = useWizard();
   const styles = useStyles();
   const offer = state.offerTypeId ? getOfferType(state.offerTypeId) : undefined;
+  const aiReady = Boolean(state.ai.token.trim());
 
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -149,6 +150,15 @@ export function ListingStep() {
         helpers to draft or refine copy — configure your GitHub Models token in Settings.
       </Body1>
 
+      {!aiReady && (
+        <MessageBar intent="info" style={{ marginTop: '12px' }}>
+          <MessageBarBody>
+            Sign in with GitHub or add a token in Settings to enable AI drafting, refining and
+            coaching.
+          </MessageBarBody>
+        </MessageBar>
+      )}
+
       <div style={{ marginTop: '20px' }}>
         {offer.requiredFields.map((f) => {
           const value = state.fieldValues[f.id] ?? '';
@@ -192,7 +202,7 @@ export function ListingStep() {
                   <Button
                     size="small"
                     icon={busy[f.id] ? <Spinner size="tiny" /> : <Sparkle20Regular />}
-                    disabled={!!busy[f.id]}
+                    disabled={!!busy[f.id] || !aiReady}
                     onClick={() => runDraft(f.id)}
                   >
                     Draft with AI
@@ -201,7 +211,7 @@ export function ListingStep() {
                     size="small"
                     appearance="subtle"
                     icon={<ArrowClockwise20Regular />}
-                    disabled={!!busy[f.id] || !value.trim()}
+                    disabled={!!busy[f.id] || !value.trim() || !aiReady}
                     onClick={() => runRefine(f.id)}
                   >
                     Refine
@@ -211,7 +221,7 @@ export function ListingStep() {
                       size="small"
                       appearance="subtle"
                       icon={coachBusy[f.id] ? <Spinner size="tiny" /> : <Lightbulb20Regular />}
-                      disabled={!!coachBusy[f.id]}
+                      disabled={!!coachBusy[f.id] || !aiReady}
                       onClick={() => runCoach(f.id)}
                     >
                       Coach

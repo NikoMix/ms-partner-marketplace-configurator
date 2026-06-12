@@ -7,7 +7,7 @@ export interface AiSettings {
   token: string;
   /** Chat completions base endpoint. */
   endpoint: string;
-  /** Chat model id, e.g. openai/gpt-4o. */
+  /** Chat model id, e.g. openai/gpt-5. */
   model: string;
   /** Optional image (image-to-image / generation) endpoint, OpenAI-compatible. */
   imageEndpoint: string;
@@ -22,7 +22,7 @@ export interface AiSettings {
 export const DEFAULT_AI_SETTINGS: AiSettings = {
   token: '',
   endpoint: 'https://models.github.ai/inference',
-  model: 'openai/gpt-4o',
+  model: 'openai/gpt-5',
   imageEndpoint: '',
   imageModel: 'openai/dall-e-3',
   oauthClientId: import.meta.env.VITE_GITHUB_OAUTH_CLIENT_ID ?? '',
