@@ -272,7 +272,7 @@ export function BillingStep() {
             onChange={(_, d) => dispatch({ type: 'SET_BILLING_LANGUAGE', language: d.value as BillingLanguage })}
           >
             <Radio value="node" label="Node.js (Express)" />
-            <Radio value="csharp" label="C# (.NET 8)" />
+            <Radio value="csharp" label="C# (.NET 10)" />
           </RadioGroup>
         </Field>
       )}
