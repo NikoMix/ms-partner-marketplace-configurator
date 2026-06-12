@@ -15,10 +15,17 @@ import {
   Link,
   MessageBar,
   MessageBarBody,
+  Dialog,
+  DialogTrigger,
+  DialogSurface,
+  DialogBody,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   makeStyles,
   tokens
 } from '@fluentui/react-components';
-import { Dismiss24Regular, ArrowResetRegular } from '@fluentui/react-icons';
+import { Dismiss24Regular, ArrowResetRegular, Delete24Regular } from '@fluentui/react-icons';
 import { useWizard } from '../state/WizardContext';
 import { DEFAULT_FIELD_PROMPTS } from '../ai/prompts';
 import { BASE_LISTING_FIELDS } from '../data/common';
@@ -29,7 +36,8 @@ const useStyles = makeStyles({
   grow: { flex: '1 1 220px' },
   hint: { fontSize: '12px', color: tokens.colorNeutralForeground3 },
   promptArea: { width: '100%' },
-  resetRow: { display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }
+  resetRow: { display: 'flex', justifyContent: 'flex-end', marginTop: '4px' },
+  localData: { marginTop: '24px' }
 });
 
 const FIELD_LABELS: Record<string, string> = Object.fromEntries(
@@ -173,6 +181,50 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           >
             Reset prompts to defaults
           </Button>
+        </div>
+
+        <Divider className={s.localData} />
+
+        <div className={s.section} style={{ marginTop: 20 }}>
+          <strong>Local data</strong>
+          <span className={s.hint}>
+            Everything you enter — contact &amp; support details, listing copy, selected
+            plans, generated assets and these AI settings — is saved automatically in this
+            browser so you don't have to re-enter it next time. Nothing is sent to a server.
+          </span>
+          <div className={s.row}>
+            <Dialog>
+              <DialogTrigger disableButtonEnhancement>
+                <Button appearance="outline" icon={<Delete24Regular />}>
+                  Clear all locally stored data
+                </Button>
+              </DialogTrigger>
+              <DialogSurface>
+                <DialogBody>
+                  <DialogTitle>Clear all locally stored data?</DialogTitle>
+                  <DialogContent>
+                    This permanently removes everything saved in this browser — your offer
+                    selections, contact &amp; support details, listing copy, plans, generated
+                    assets, the AI token and any customised prompts. This can't be undone.
+                  </DialogContent>
+                  <DialogActions>
+                    <DialogTrigger disableButtonEnhancement>
+                      <Button appearance="secondary">Cancel</Button>
+                    </DialogTrigger>
+                    <DialogTrigger disableButtonEnhancement>
+                      <Button
+                        appearance="primary"
+                        icon={<Delete24Regular />}
+                        onClick={() => dispatch({ type: 'CLEAR_ALL' })}
+                      >
+                        Clear everything
+                      </Button>
+                    </DialogTrigger>
+                  </DialogActions>
+                </DialogBody>
+              </DialogSurface>
+            </Dialog>
+          </div>
         </div>
       </DrawerBody>
     </OverlayDrawer>

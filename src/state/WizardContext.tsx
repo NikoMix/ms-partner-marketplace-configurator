@@ -105,6 +105,7 @@ type Action =
   | { type: 'SET_FIELD_PROMPT'; fieldId: string; value: string }
   | { type: 'RESET_PROMPTS' }
   | { type: 'RESET_ALL' }
+  | { type: 'CLEAR_ALL' }
   | { type: 'HYDRATE'; state: WizardState };
 
 const lastStep = STEPS.length - 1;
@@ -189,6 +190,24 @@ function reducer(state: WizardState, action: Action): WizardState {
       };
     case 'RESET_ALL':
       return { ...initialState, ai: state.ai, prompts: state.prompts };
+    case 'CLEAR_ALL':
+      // Wipe every locally stored value back to factory defaults, including the
+      // AI token and custom prompts. Used by the "Clear all locally stored data"
+      // control in Settings.
+      return {
+        stepIndex: 0,
+        answers: {},
+        fieldValues: {},
+        selectedBillingModelIds: [],
+        plans: [],
+        assets: {},
+        ai: { ...DEFAULT_AI_SETTINGS },
+        prompts: {
+          base: DEFAULT_BASE_PROMPT,
+          refine: DEFAULT_REFINE_PROMPT,
+          fields: { ...DEFAULT_FIELD_PROMPTS }
+        }
+      };
     case 'HYDRATE':
       return action.state;
     default:
@@ -247,7 +266,15 @@ export function WizardProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
-      /* ignore quota / serialization errors */
+      // The full state (including generated/uploaded image data URLs) can exceed
+      // the localStorage quota. If that happens, persist everything except the
+      // heavy `assets` blob so text inputs — contact details, listing copy and
+      // plans — are still saved and don't need to be re-entered.
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, assets: {} }));
+      } catch {
+        /* give up silently */
+      }
     }
   }, [state]);
 
