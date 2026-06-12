@@ -119,7 +119,8 @@ export function SummaryStep() {
       offerTypeName: offer!.name,
       billingZipKind: offer!.billingZipKind,
       billingModelLabels: selectedModels.map((b) => b.label),
-      plans
+      plans,
+      language: state.billingLanguage
     };
   }
 

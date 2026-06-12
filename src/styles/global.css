@@ -40,7 +40,7 @@ a {
   padding: 0 24px;
 }
 
-/* MS Learn Assessments–style hero band */
+/* Hero band */
 .hero {
   background: linear-gradient(135deg, #eff6fc 0%, #e3f0fb 45%, #f3f9ff 100%);
   border-bottom: 1px solid var(--ms-border);

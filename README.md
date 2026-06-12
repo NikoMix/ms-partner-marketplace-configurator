@@ -6,8 +6,7 @@ It guides you through choosing the right offer type, surfaces exactly what Partn
 require to publish, drafts and refines your listing copy with AI, generates correctly sized
 marketplace image assets, and produces a downloadable **billing/costing starter template**.
 
-The UI follows the look & feel of the [Microsoft Learn Assessments](https://learn.microsoft.com/assessments/)
-experience with professional Microsoft branding.
+The UI has a clean, professional look with Microsoft branding.
 
 > Built as a static app and deployed to **GitHub Pages**.
 
@@ -37,27 +36,42 @@ Your progress is saved to `localStorage`, so you can close the tab and come back
 
 ---
 
-## AI features (bring your own token)
+## AI features
 
 The AI helpers call the **[GitHub Models](https://github.com/marketplace/models)** inference API
-directly from your browser — **your token is never sent anywhere except the model endpoint** and
-is stored only in your browser's `localStorage`.
+directly from your browser — **your credentials are never sent anywhere except the model endpoint**
+and are stored only in your browser's `localStorage`.
 
-### Set up
+### Authenticate
 
-1. Create a token with **`models: read`** permission — a
-   [fine-grained PAT](https://github.com/settings/personal-access-tokens) works well.
-2. In the app, open **Settings** (gear icon, top right).
-3. Paste your token. Optionally adjust:
-   - **Endpoint** — defaults to `https://models.github.ai/inference`.
-   - **Model** — defaults to a GPT-4o class chat model (e.g. `openai/gpt-4o`).
-   - **Image endpoint / image model** — any OpenAI-compatible image API
-     (`/images/generations` and `/images/edits`). Configure this if you want AI asset generation.
-4. You can also edit the **system prompts** (base, refine, and per-field) right in Settings and
-   reset them to defaults at any time — tune them to keep listing copy accurate and on-brand.
+You have two options, both configured in **Settings** (gear icon, top right):
 
-> Nothing is proxied through a server. All inference requests go straight from your browser to the
-> endpoint you configure.
+- **Sign in with GitHub (recommended)** — authorize with your GitHub account via the device flow.
+  You'll get a short code to enter on github.com, and the resulting access token is kept only in
+  this browser. This requires a GitHub **OAuth App** (with device flow enabled); set its client id
+  at build time via the `VITE_GITHUB_OAUTH_CLIENT_ID` env var or under **Settings → Sign-in
+  configuration**. Because GitHub's sign-in endpoints don't permit direct browser calls, you also
+  need a CORS proxy prefix (`VITE_CORS_PROXY`, or the same advanced settings).
+- **Bring your own token** — create a token with **`models: read`** permission (a
+  [fine-grained PAT](https://github.com/settings/personal-access-tokens) works well) and paste it
+  into Settings. This is the simplest option and needs no proxy.
+
+### Configure
+
+In **Settings** you can also adjust:
+
+- **Endpoint** — defaults to `https://models.github.ai/inference`.
+- **Model** — defaults to a GPT-4o class chat model (e.g. `openai/gpt-4o`).
+- **Image endpoint / image model** — GitHub Models serves text and embeddings only, so AI **image
+  generation** uses a separate **OpenAI-compatible image API** (exposing `/images/generations` and
+  `/images/edits`). Configure these to enable asset generation; leave the image endpoint blank to
+  skip it.
+- **System prompts** — edit the base, refine, and per-field prompts and reset them to defaults at
+  any time, to keep listing copy accurate and on-brand.
+
+> Nothing is proxied through a server for inference. All model requests go straight from your
+> browser to the endpoint you configure. (The optional CORS proxy applies only to GitHub's sign-in
+> endpoints.)
 
 ---
 

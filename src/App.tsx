@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, makeStyles, Link } from '@fluentui/react-components';
+import { Button, makeStyles } from '@fluentui/react-components';
 import { ArrowLeft20Regular, ArrowRight20Regular } from '@fluentui/react-icons';
 import { TopBar } from './components/TopBar';
 import { HeroHeader } from './components/HeroHeader';
@@ -152,14 +152,8 @@ export function App() {
 
       <footer className="app-footer">
         <div className="app-footer-inner">
-          <span>
-            Unofficial partner tool · Built on{' '}
-            <Link href="https://learn.microsoft.com/partner-center/marketplace/" target="_blank" rel="noreferrer">
-              Microsoft commercial marketplace
-            </Link>{' '}
-            documentation.
-          </span>
-          <span>Your GitHub Models token stays in your browser.</span>
+          <span>Unofficial partner tool.</span>
+          <span>GitHub Copilot Token will be utilized for AI Features.</span>
         </div>
       </footer>
 

@@ -41,6 +41,9 @@ export interface RequiredField {
 
 export type Transactability = 'yes' | 'no' | 'via-saas';
 
+/** Implementation language for the generated billing/webhook starter. */
+export type BillingLanguage = 'node' | 'csharp';
+
 export type BillingZipKind =
   | 'saas-metered'
   | 'saas-subscription'

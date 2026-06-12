@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react';
-import type { ListingOptionId } from '../data/types';
+import type { ListingOptionId, BillingLanguage } from '../data/types';
 import {
   DEFAULT_AI_SETTINGS,
   DEFAULT_BASE_PROMPT,
@@ -57,6 +57,8 @@ export interface WizardState {
   fieldValues: Record<string, string>;
   selectedBillingModelIds: string[];
   plans: PlanConfig[];
+  /** Implementation language for generated billing/webhook starter code */
+  billingLanguage: BillingLanguage;
   /** asset spec id -> data URL (PNG) */
   assets: Record<string, string>;
   ai: AiSettings;
@@ -75,6 +77,7 @@ const initialState: WizardState = {
   fieldValues: {},
   selectedBillingModelIds: [],
   plans: [],
+  billingLanguage: 'node',
   assets: {},
   ai: { ...DEFAULT_AI_SETTINGS },
   prompts: initialPrompts
@@ -94,6 +97,7 @@ type Action =
   | { type: 'SET_LISTING_OPTION'; listingOptionId: ListingOptionId }
   | { type: 'SET_FIELD'; fieldId: string; value: string }
   | { type: 'TOGGLE_BILLING'; billingModelId: string }
+  | { type: 'SET_BILLING_LANGUAGE'; language: BillingLanguage }
   | { type: 'ADD_PLAN'; plan: PlanConfig }
   | { type: 'UPDATE_PLAN'; plan: PlanConfig }
   | { type: 'REMOVE_PLAN'; planId: string }
@@ -158,6 +162,8 @@ function reducer(state: WizardState, action: Action): WizardState {
       };
     case 'REMOVE_PLAN':
       return { ...state, plans: state.plans.filter((p) => p.id !== action.planId) };
+    case 'SET_BILLING_LANGUAGE':
+      return { ...state, billingLanguage: action.language };
     case 'SET_ASSET':
       return { ...state, assets: { ...state.assets, [action.specId]: action.dataUrl } };
     case 'REMOVE_ASSET': {
@@ -200,6 +206,7 @@ function reducer(state: WizardState, action: Action): WizardState {
         fieldValues: {},
         selectedBillingModelIds: [],
         plans: [],
+        billingLanguage: 'node',
         assets: {},
         ai: { ...DEFAULT_AI_SETTINGS },
         prompts: {

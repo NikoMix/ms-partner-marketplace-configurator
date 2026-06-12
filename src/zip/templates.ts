@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import type { BillingZipKind } from '../data/types';
+import type { BillingZipKind, BillingLanguage } from '../data/types';
 
 export interface PlanSummary {
   name: string;
@@ -15,6 +15,8 @@ export interface BillingZipContext {
   billingZipKind: BillingZipKind;
   billingModelLabels: string[];
   plans: PlanSummary[];
+  /** Implementation language for code files (webhook/metering). Defaults to 'node'. */
+  language: BillingLanguage;
 }
 
 export function triggerDownload(blob: Blob, filename: string): void {
@@ -28,11 +30,16 @@ export function triggerDownload(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+function languageLabel(language: BillingLanguage): string {
+  return language === 'csharp' ? 'C# (.NET 8 / ASP.NET minimal API)' : 'Node.js (Express)';
+}
+
 function billingReadme(ctx: BillingZipContext): string {
   return `# Billing starter — ${ctx.offerName || ctx.offerTypeName}
 
 Offer type: **${ctx.offerTypeName}**
 Billing template: **${ctx.billingZipKind}**
+Implementation language: **${languageLabel(ctx.language)}**
 
 Billing models selected:
 ${ctx.billingModelLabels.map((b) => `- ${b}`).join('\n') || '- (none selected)'}
@@ -258,14 +265,250 @@ const SAAS_PRICING_JSON = `{
 }
 `;
 
-function addSaasMetered(folder: JSZip): void {
-  const src = folder.folder('src');
-  if (src) {
-    src.file('metering.js', SAAS_METERING_JS);
-    src.file('webhook.js', SAAS_WEBHOOK_JS);
+// ---------------------------------------------------------------------------
+// C# (.NET 8) variants
+// ---------------------------------------------------------------------------
+
+const CSHARP_WEB_CSPROJ = `<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BillingStarter</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.12.0" />
+  </ItemGroup>
+</Project>
+`;
+
+const CSHARP_CONSOLE_CSPROJ = `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BillingStarter</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.12.0" />
+  </ItemGroup>
+</Project>
+`;
+
+const CSHARP_METERING_CS = `// Metering.cs
+// Azure Marketplace Metering Service - emit usage events for metered (pay-as-you-go) dimensions.
+// Docs: https://learn.microsoft.com/partner-center/marketplace/marketplace-metering-service-apis
+using System.Net.Http.Json;
+using Azure.Core;
+using Azure.Identity;
+
+namespace BillingStarter;
+
+/// <param name="ResourceId">SaaS subscription id (or managed-app resourceUsageId)</param>
+/// <param name="PlanId">Plan the customer is on</param>
+/// <param name="Dimension">Metered dimension id from your plan (e.g. "api_calls")</param>
+/// <param name="Quantity">Units consumed since the last event</param>
+public record UsageEvent(string ResourceId, string PlanId, string Dimension, double Quantity);
+
+public class MeteringClient
+{
+    // Fixed resource/audience for the commercial marketplace metering API.
+    private const string MarketplaceScope = "20e940b3-4c77-4b0b-9a53-9e16a1b010a7/.default";
+    private const string UsageEventUrl =
+        "https://marketplaceapi.microsoft.com/api/usageEvent?api-version=2018-08-31";
+    private const string BatchUsageUrl =
+        "https://marketplaceapi.microsoft.com/api/batchUsageEvent?api-version=2018-08-31";
+
+    private readonly ClientSecretCredential _credential;
+    private readonly HttpClient _http = new();
+
+    public MeteringClient(string tenantId, string clientId, string clientSecret)
+    {
+        _credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+    }
+
+    private async Task<string> GetTokenAsync()
+    {
+        var token = await _credential.GetTokenAsync(
+            new TokenRequestContext(new[] { MarketplaceScope }));
+        return token.Token;
+    }
+
+    /// <summary>Emit a single metered usage event.</summary>
+    public async Task<string> EmitUsageEventAsync(UsageEvent evt)
+    {
+        var accessToken = await GetTokenAsync();
+        using var req = new HttpRequestMessage(HttpMethod.Post, UsageEventUrl);
+        req.Headers.Authorization = new("Bearer", accessToken);
+        req.Content = JsonContent.Create(new
+        {
+            resourceId = evt.ResourceId,
+            planId = evt.PlanId,
+            dimension = evt.Dimension,
+            quantity = evt.Quantity,
+            effectiveStartTime = DateTime.UtcNow
+        });
+        var res = await _http.SendAsync(req);
+        var body = await res.Content.ReadAsStringAsync();
+        if (!res.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Usage event failed: {(int)res.StatusCode} {body}");
+        return body;
+    }
+
+    /// <summary>Batch up to 25 usage events in a single call.</summary>
+    public async Task<string> EmitBatchUsageAsync(IEnumerable<UsageEvent> events)
+    {
+        var accessToken = await GetTokenAsync();
+        using var req = new HttpRequestMessage(HttpMethod.Post, BatchUsageUrl);
+        req.Headers.Authorization = new("Bearer", accessToken);
+        req.Content = JsonContent.Create(new
+        {
+            request = events.Select(e => new
+            {
+                resourceId = e.ResourceId,
+                planId = e.PlanId,
+                dimension = e.Dimension,
+                quantity = e.Quantity,
+                effectiveStartTime = DateTime.UtcNow
+            })
+        });
+        var res = await _http.SendAsync(req);
+        var body = await res.Content.ReadAsStringAsync();
+        if (!res.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Batch usage failed: {(int)res.StatusCode} {body}");
+        return body;
+    }
+}
+`;
+
+const CSHARP_WEBHOOK_PROGRAM_CS = `// Program.cs
+// SaaS fulfillment v2 webhook - handle subscription lifecycle events (ASP.NET minimal API).
+// Docs: https://learn.microsoft.com/partner-center/marketplace/partner-center-portal/pc-saas-fulfillment-webhook
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapPost("/webhook", (MarketplaceWebhookEvent evt) =>
+{
+    // { Id, Action, SubscriptionId, PlanId, Quantity, TimeStamp, Status }
+    Console.WriteLine($"Marketplace webhook: {evt.Action} {evt.SubscriptionId}");
+
+    // IMPORTANT: validate the event by calling the GET Operation API before acting on it.
+    // Then ACK by PATCHing the operation to Success/Failure.
+
+    switch (evt.Action)
+    {
+        case "Subscribe":
+            // Provision the customer, store subscriptionId -> tenant mapping.
+            break;
+        case "Unsubscribe":
+            // Deprovision / disable access.
+            break;
+        case "ChangePlan":
+            // Update entitlements to the new plan.
+            break;
+        case "ChangeQuantity":
+            // Update seat count.
+            break;
+        case "Suspend":
+            // Payment failed - soft-disable access.
+            break;
+        case "Reinstate":
+            // Payment recovered - restore access.
+            break;
+        case "Renew":
+            // Subscription renewed.
+            break;
+        default:
+            Console.WriteLine($"Unhandled action: {evt.Action}");
+            break;
+    }
+
+    return Results.Ok();
+});
+
+app.Run();
+
+// Example: report metered usage on a schedule (call from your billing job).
+// var metering = new BillingStarter.MeteringClient(
+//     Environment.GetEnvironmentVariable("AZURE_TENANT_ID")!,
+//     Environment.GetEnvironmentVariable("AZURE_CLIENT_ID")!,
+//     Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET")!);
+// await metering.EmitUsageEventAsync(
+//     new BillingStarter.UsageEvent("SUBSCRIPTION_ID", "starter", "api_calls", 0));
+
+public record MarketplaceWebhookEvent(
+    string Id,
+    string Action,
+    string SubscriptionId,
+    string PlanId,
+    int Quantity,
+    string TimeStamp,
+    string Status);
+`;
+
+const CSHARP_METERING_PROGRAM_CS = `// Program.cs
+// Sample entry point that emits a metered usage event via the Marketplace Metering Service.
+using BillingStarter;
+
+var tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID")
+    ?? throw new InvalidOperationException("AZURE_TENANT_ID not set");
+var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID")
+    ?? throw new InvalidOperationException("AZURE_CLIENT_ID not set");
+var clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET")
+    ?? throw new InvalidOperationException("AZURE_CLIENT_SECRET not set");
+
+var metering = new MeteringClient(tenantId, clientId, clientSecret);
+
+// Replace with your managed-app resourceUsageId / subscription id and real quantity.
+await metering.EmitUsageEventAsync(new UsageEvent(
+    ResourceId: "REPLACE_RESOURCE_ID",
+    PlanId: "starter",
+    Dimension: "api_calls",
+    Quantity: 0));
+
+Console.WriteLine("Usage event sent.");
+`;
+
+/** Add the manifest (package.json / .csproj) for a code starter. */
+function addManifest(folder: JSZip, language: BillingLanguage, web: boolean): void {
+  if (language === 'csharp') {
+    folder.file('BillingStarter.csproj', web ? CSHARP_WEB_CSPROJ : CSHARP_CONSOLE_CSPROJ);
+  } else {
+    folder.file('package.json', SAAS_PACKAGE_JSON);
   }
+}
+
+/** Add the metering implementation file. */
+function addMeteringFile(folder: JSZip, language: BillingLanguage): void {
+  if (language === 'csharp') {
+    folder.file('Metering.cs', CSHARP_METERING_CS);
+  } else {
+    const src = folder.folder('src');
+    if (src) src.file('metering.js', SAAS_METERING_JS);
+  }
+}
+
+/** Add the SaaS fulfillment webhook file. */
+function addWebhookFile(folder: JSZip, language: BillingLanguage): void {
+  if (language === 'csharp') {
+    folder.file('Program.cs', CSHARP_WEBHOOK_PROGRAM_CS);
+  } else {
+    const src = folder.folder('src');
+    if (src) src.file('webhook.js', SAAS_WEBHOOK_JS);
+  }
+}
+
+/** Run command hint for INTEGRATION.md, per language. */
+function runHint(language: BillingLanguage): string {
+  return language === 'csharp' ? '`dotnet run`' : '`node src/webhook.js`';
+}
+
+function addSaasMetered(folder: JSZip, language: BillingLanguage): void {
+  addMeteringFile(folder, language);
+  addWebhookFile(folder, language);
+  addManifest(folder, language, true);
   folder.file('pricing.json', SAAS_PRICING_JSON);
-  folder.file('package.json', SAAS_PACKAGE_JSON);
   folder.file('.env.example', SAAS_ENV_EXAMPLE);
   folder.file(
     'INTEGRATION.md',
@@ -273,8 +516,8 @@ function addSaasMetered(folder: JSZip): void {
 
 1. Register a Microsoft Entra app and add its IDs to \`.env\`.
 2. Implement the SaaS fulfillment v2 landing page + resolve/activate flow.
-3. Run \`src/webhook.js\` and register its public URL as the **Connection webhook** in Partner Center.
-4. For each metered dimension, call \`emitUsageEvent\` (or \`emitBatchUsage\`) with the consumed quantity.
+3. Run ${runHint(language)} and register its public URL as the **Connection webhook** in Partner Center.
+4. For each metered dimension, emit a usage event with the consumed quantity.
 5. Configure plans & dimensions to match \`pricing.json\` in Partner Center.
 
 Key APIs:
@@ -284,10 +527,9 @@ Key APIs:
   );
 }
 
-function addSaasSubscription(folder: JSZip): void {
-  const src = folder.folder('src');
-  if (src) src.file('webhook.js', SAAS_WEBHOOK_JS);
-  folder.file('package.json', SAAS_PACKAGE_JSON);
+function addSaasSubscription(folder: JSZip, language: BillingLanguage): void {
+  addWebhookFile(folder, language);
+  addManifest(folder, language, true);
   folder.file('.env.example', SAAS_ENV_EXAMPLE);
   folder.file('pricing.json', SAAS_PRICING_JSON);
   folder.file(
@@ -300,12 +542,12 @@ Microsoft handles recurring billing for flat-rate and per-user plans. Your job:
 3. Handle webhook lifecycle events (ChangePlan, ChangeQuantity, Suspend, Reinstate, Unsubscribe).
 
 No metering code is required unless you add a metered dimension - in that case use the
-\`saas-metered\` template's metering.js.
+\`saas-metered\` template's metering implementation.
 `
   );
 }
 
-function addAzureApp(folder: JSZip): void {
+function addAzureApp(folder: JSZip, language: BillingLanguage): void {
   folder.file(
     'createUiDefinition.sample.json',
     `{
@@ -327,10 +569,9 @@ function addAzureApp(folder: JSZip): void {
 }
 `
   );
-  folder.file('src/.gitkeep', '');
-  const src = folder.folder('src');
-  if (src) src.file('metering.js', SAAS_METERING_JS);
-  folder.file('package.json', SAAS_PACKAGE_JSON);
+  addMeteringFile(folder, language);
+  if (language === 'csharp') folder.file('Program.cs', CSHARP_METERING_PROGRAM_CS);
+  addManifest(folder, language, false);
   folder.file('.env.example', SAAS_ENV_EXAMPLE);
   folder.file(
     'INTEGRATION.md',
@@ -340,7 +581,7 @@ Package an Azure managed application (\`mainTemplate.json\` + \`createUiDefiniti
 into a .zip and upload it to your plan in Partner Center.
 
 For **metered billing**, the managed app gets a \`resourceUsageId\`; use it as the
-\`resourceId\` when calling the Marketplace Metering Service (\`src/metering.js\`).
+\`resourceId\` when calling the Marketplace Metering Service (see the metering files).
 `
   );
 }
@@ -371,10 +612,10 @@ Standard_D8s_v5,8,0.40
   );
 }
 
-function addAzureContainer(folder: JSZip): void {
-  const src = folder.folder('src');
-  if (src) src.file('metering.js', SAAS_METERING_JS);
-  folder.file('package.json', SAAS_PACKAGE_JSON);
+function addAzureContainer(folder: JSZip, language: BillingLanguage): void {
+  addMeteringFile(folder, language);
+  if (language === 'csharp') folder.file('Program.cs', CSHARP_METERING_PROGRAM_CS);
+  addManifest(folder, language, false);
   folder.file('.env.example', SAAS_ENV_EXAMPLE);
   folder.file(
     'INTEGRATION.md',
@@ -382,7 +623,7 @@ function addAzureContainer(folder: JSZip): void {
 
 Container offers (Azure Container, Kubernetes app) commonly use **metered billing**
 through the Marketplace Metering Service. Your containerized workload reports usage
-via \`src/metering.js\` using the CMA (container marketplace) token / resourceId.
+via the metering files using the CMA (container marketplace) token / resourceId.
 
 Checklist:
 1. Push images to the Azure Container Registry that Partner Center provisions.
@@ -412,19 +653,19 @@ function addBillingFiles(folder: JSZip, ctx: BillingZipContext): void {
 
   switch (ctx.billingZipKind) {
     case 'saas-metered':
-      addSaasMetered(folder);
+      addSaasMetered(folder, ctx.language);
       break;
     case 'saas-subscription':
-      addSaasSubscription(folder);
+      addSaasSubscription(folder, ctx.language);
       break;
     case 'azure-app':
-      addAzureApp(folder);
+      addAzureApp(folder, ctx.language);
       break;
     case 'azure-vm':
       addAzureVm(folder);
       break;
     case 'azure-container':
-      addAzureContainer(folder);
+      addAzureContainer(folder, ctx.language);
       break;
     case 'marketplace-generic':
       addGeneric(folder);

@@ -191,7 +191,9 @@ export function AssetsStep() {
       <Title3 as="h2">Marketplace assets</Title3>
       <Body1>
         Partner Center requires correctly sized images. Upload your own (auto-resized) or
-        generate them with AI, then refine with image-to-image. Configure image settings in Settings.
+        generate them with AI, then refine with image-to-image. AI image generation needs a
+        separate OpenAI-compatible image endpoint (GitHub Models is text-only) — configure it in
+        Settings.
       </Body1>
 
       <div className={styles.grid}>

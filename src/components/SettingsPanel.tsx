@@ -15,6 +15,7 @@ import {
   Link,
   MessageBar,
   MessageBarBody,
+  Spinner,
   Dialog,
   DialogTrigger,
   DialogSurface,
@@ -26,9 +27,15 @@ import {
   tokens
 } from '@fluentui/react-components';
 import { Dismiss24Regular, ArrowResetRegular, Delete24Regular } from '@fluentui/react-icons';
+import { useRef, useState } from 'react';
 import { useWizard } from '../state/WizardContext';
 import { DEFAULT_FIELD_PROMPTS } from '../ai/prompts';
 import { BASE_LISTING_FIELDS } from '../data/common';
+import {
+  requestDeviceCode,
+  pollForToken,
+  type DeviceCodeResponse
+} from '../auth/githubAuth';
 
 const useStyles = makeStyles({
   section: { display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' },
@@ -37,7 +44,23 @@ const useStyles = makeStyles({
   hint: { fontSize: '12px', color: tokens.colorNeutralForeground3 },
   promptArea: { width: '100%' },
   resetRow: { display: 'flex', justifyContent: 'flex-end', marginTop: '4px' },
-  localData: { marginTop: '24px' }
+  localData: { marginTop: '24px' },
+  signinBox: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    padding: '12px 14px',
+    borderRadius: tokens.borderRadiusMedium,
+    backgroundColor: tokens.colorNeutralBackground2
+  },
+  signinRow: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' },
+  userCode: {
+    fontFamily: 'Consolas, "Courier New", monospace',
+    fontSize: '24px',
+    fontWeight: 700,
+    letterSpacing: '3px',
+    color: tokens.colorBrandForeground1
+  }
 });
 
 const FIELD_LABELS: Record<string, string> = Object.fromEntries(
@@ -54,6 +77,40 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const { state, dispatch } = useWizard();
   const { ai, prompts } = state;
 
+  const [device, setDevice] = useState<DeviceCodeResponse | null>(null);
+  const [signinBusy, setSigninBusy] = useState(false);
+  const [signinError, setSigninError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+  const cancelRef = useRef(false);
+
+  async function handleSignIn() {
+    setSigninError(null);
+    setSignedIn(false);
+    setSigninBusy(true);
+    cancelRef.current = false;
+    try {
+      const dc = await requestDeviceCode(ai);
+      setDevice(dc);
+      const token = await pollForToken(ai, dc, { shouldCancel: () => cancelRef.current });
+      dispatch({ type: 'SET_AI', ai: { token } });
+      setSignedIn(true);
+      setDevice(null);
+    } catch (err) {
+      if (!cancelRef.current) {
+        setSigninError(err instanceof Error ? err.message : String(err));
+      }
+      setDevice(null);
+    } finally {
+      setSigninBusy(false);
+    }
+  }
+
+  function handleCancelSignIn() {
+    cancelRef.current = true;
+    setDevice(null);
+    setSigninBusy(false);
+  }
+
   return (
     <OverlayDrawer open={open} position="end" size="large" onOpenChange={(_, d) => !d.open && onClose()}>
       <DrawerHeader>
@@ -68,10 +125,88 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       <DrawerBody>
         <MessageBar intent="info" style={{ marginBottom: 16 }}>
           <MessageBarBody>
-            Bring your own token. Inference runs from your browser directly to the model endpoint —
-            your token is stored only in this browser's localStorage and is never sent anywhere else.
+            Sign in with GitHub to use your own account's access, or bring your own token.
+            Inference runs from your browser directly to the model endpoint — your credentials are
+            stored only in this browser's localStorage and are never sent anywhere else.
           </MessageBarBody>
         </MessageBar>
+
+        <div className={s.section}>
+          <strong>Sign in with GitHub</strong>
+          <span className={s.hint}>
+            Authorize with your GitHub account instead of pasting a token. We use GitHub's device
+            flow — you'll get a short code to enter on github.com. The resulting access token is kept
+            only in this browser.
+          </span>
+
+          {device ? (
+            <div className={s.signinBox}>
+              <span className={s.hint}>Enter this code on GitHub to authorize:</span>
+              <div className={s.signinRow}>
+                <span className={s.userCode}>{device.userCode}</span>
+                <Link href={device.verificationUri} target="_blank">
+                  Open {device.verificationUri}
+                </Link>
+              </div>
+              <div className={s.signinRow}>
+                <Spinner size="tiny" label="Waiting for authorization…" />
+                <Button appearance="subtle" onClick={handleCancelSignIn}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className={s.row}>
+              <Button appearance="primary" disabled={signinBusy} onClick={handleSignIn}>
+                {signinBusy ? 'Starting…' : 'Sign in with GitHub'}
+              </Button>
+            </div>
+          )}
+
+          {signedIn && (
+            <MessageBar intent="success">
+              <MessageBarBody>Signed in. Your GitHub token is set below.</MessageBarBody>
+            </MessageBar>
+          )}
+          {signinError && (
+            <MessageBar intent="error">
+              <MessageBarBody>{signinError}</MessageBarBody>
+            </MessageBar>
+          )}
+
+          <Accordion collapsible>
+            <AccordionItem value="oauth-advanced">
+              <AccordionHeader>Sign-in configuration (advanced)</AccordionHeader>
+              <AccordionPanel>
+                <div className={s.row}>
+                  <Field label="OAuth App client id" className={s.grow}>
+                    <Input
+                      value={ai.oauthClientId}
+                      placeholder="Iv1.xxxxxxxxxxxx"
+                      onChange={(_, d) => dispatch({ type: 'SET_AI', ai: { oauthClientId: d.value } })}
+                    />
+                  </Field>
+                  <Field label="CORS proxy prefix" className={s.grow}>
+                    <Input
+                      value={ai.corsProxy}
+                      placeholder="https://your-proxy/"
+                      onChange={(_, d) => dispatch({ type: 'SET_AI', ai: { corsProxy: d.value } })}
+                    />
+                  </Field>
+                </div>
+                <span className={s.hint}>
+                  Sign-in needs a GitHub OAuth App (with device flow enabled) — its client id can be
+                  baked in at build time via <code>VITE_GITHUB_OAUTH_CLIENT_ID</code> or set here.
+                  GitHub's sign-in endpoints don't allow direct browser calls, so a CORS proxy prefix
+                  is required (the GitHub URL is appended to it). Prefer a token below if you can't
+                  run a proxy.
+                </span>
+              </AccordionPanel>
+            </AccordionItem>
+          </Accordion>
+        </div>
+
+        <Divider>Or use a token</Divider>
 
         <div className={s.section}>
           <Field label="GitHub Models token (fine-grained PAT with models: read)">
@@ -122,6 +257,12 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               />
             </Field>
           </div>
+          <span className={s.hint}>
+            GitHub Models provides text and embeddings only — it does not offer an image-generation
+            API. To create marketplace assets with AI, point the image endpoint at a separate
+            OpenAI-compatible image service (e.g. Azure OpenAI or the OpenAI Images API) and supply a
+            matching token. Leave it blank to upload and auto-resize assets manually.
+          </span>
         </div>
 
         <Divider>System prompts</Divider>
