@@ -427,3 +427,12 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# --- Node / Vite SPA ---
+dist/
+*.tsbuildinfo
+node_modules/
+.env.local
+.env.*.local
+${SQLITE_DB_PATH}
+
