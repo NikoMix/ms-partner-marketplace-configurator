@@ -141,6 +141,47 @@ and SaaS fulfillment APIs and to model your costs.
 
 ---
 
+## Submit via the Partner Center Product Ingestion API
+
+The **Review & export** step can generate a ready-to-run **submission bundle** for offer types that
+the [Product Ingestion API](https://learn.microsoft.com/partner-center/marketplace-offers/product-ingestion-api)
+supports today — SaaS, AI apps & agents (sold through a SaaS offer), Azure Virtual Machine and Azure
+Container. For all other offer types the wizard links you straight to Partner Center to finish
+manually.
+
+### Why a bundle (and not a button)
+
+The Product Ingestion API authenticates with **app-only client credentials** (a Microsoft Entra
+service principal). A public single-page app cannot safely hold a client secret, and Partner Center
+does not allow browser-origin (CORS) calls — so a true "submit from the browser" flow is not
+possible without a backend. Instead, the wizard hands you a small project that runs the submission
+with **your own** service principal, locally or in CI. **No secret ever touches this browser.**
+
+### What's in the bundle
+
+| File | Purpose |
+| --- | --- |
+| `configure.json` | A guaranteed-valid `configure` payload: the product resource, a `commercial-marketplace-setup` resource for SaaS, and plan skeletons. Creates a **draft**. |
+| `listing-content.json` + `MAPPING.md` | Your listing copy and pricing as a neutral sidecar to apply after the draft exists (via a `GET resource-tree`). Kept separate because `configure` is atomic — one bad property fails the whole job. |
+| `submit.ps1` | PowerShell runner. Defaults to `-Target draft`; `preview`/`live` add a submission resource (live requires a preview first). |
+| `.NET` (`Submit/`) **or** `Node.js` (`submit.mjs`) variant | Same flow in your preferred language — matches the **Billing language** you picked on the Billing step. |
+| `.github/workflows/submit.yml` | A GitHub Actions workflow that runs the submission from CI using repository variables/secrets. |
+| `.env.example` + `README.md` | The Entra app registration values to fill in and step-by-step run instructions. |
+
+### Running it
+
+1. Register a Microsoft Entra app, grant it the **Partner Center / marketplace** permissions, and
+   note the tenant ID, client ID and client secret.
+2. Copy `.env.example` to `.env` and fill in those values.
+3. Run `./submit.ps1` (or the .NET/Node variant). It creates a **draft** offer in Partner Center.
+4. Apply your listing copy and finalize pricing per `MAPPING.md`, then re-run with `-Target preview`
+   and finally `-Target live`.
+
+The bundle is a starting point: review every payload before you submit, and complete anything the
+API can't set (e.g. final plan pricing & availability) in Partner Center.
+
+---
+
 ## Deep linking / JSON import
 
 Other applications and agents can open the wizard **pre-populated** with an offering, so a partner

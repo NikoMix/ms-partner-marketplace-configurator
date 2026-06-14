@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import type { BillingZipKind, BillingLanguage } from '../data/types';
+import type { ConfigurePayload, ListingContent } from '../submission/payload';
 
 export interface PlanSummary {
   name: string;
@@ -714,6 +715,683 @@ export async function buildProjectZip(ctx: ProjectZipContext): Promise<Blob> {
     const billingFolder = zip.folder('billing');
     if (billingFolder) addBillingFiles(billingFolder, ctx.billing);
   }
+
+  return zip.generateAsync({ type: 'blob' });
+}
+
+// ---------------------------------------------------------------------------
+// Partner Center submission bundle (Product Ingestion API)
+// ---------------------------------------------------------------------------
+
+export interface SubmissionZipContext {
+  offerName: string;
+  offerTypeName: string;
+  productIngestionType: string;
+  transactable: boolean;
+  language: BillingLanguage;
+  configurePayload: ConfigurePayload;
+  listingContent: ListingContent;
+  prerequisites: string[];
+}
+
+const SUBMISSION_ENV_EXAMPLE = `# Microsoft Entra service principal used to call the Product Ingestion API.
+# Create the app registration in YOUR (the partner's) tenant, add a client secret,
+# then in Partner Center go to: Account settings > User management >
+# "Azure AD applications" > add this app with the **Manager** role.
+AZURE_TENANT_ID=00000000-0000-0000-0000-000000000000
+AZURE_CLIENT_ID=00000000-0000-0000-0000-000000000000
+AZURE_CLIENT_SECRET=replace-me
+`;
+
+const SUBMISSION_PS1 = `#requires -Version 7
+<#
+.SYNOPSIS
+  Submit configure.json to the Microsoft Partner Center Product Ingestion API.
+.DESCRIPTION
+  Acquires an access token with a Microsoft Entra service principal (client
+  credentials) and POSTs configure.json, which creates a DRAFT product plus plan
+  skeletons. Listing copy and pricing are intentionally NOT in this payload -
+  see MAPPING.md for how to apply listing-content.json after the draft exists.
+.PARAMETER EnvFile
+  Path to a .env file holding AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET.
+.PARAMETER Target
+  draft (default), preview, or live. preview and live add a submission resource.
+  live requires the offer to have been published to preview first.
+.PARAMETER ExportResourceTree
+  After success, GET the product resource-tree and save it to resource-tree.json.
+.EXAMPLE
+  pwsh ./submit.ps1
+.EXAMPLE
+  pwsh ./submit.ps1 -Target preview -ExportResourceTree
+#>
+param(
+  [string]$EnvFile = '.env',
+  [ValidateSet('draft', 'preview', 'live')][string]$Target = 'draft',
+  [switch]$ExportResourceTree
+)
+
+$ErrorActionPreference = 'Stop'
+$apiVersion = '2022-03-01-preview2'
+$base = 'https://graph.microsoft.com/rp/product-ingestion'
+$schemaBase = 'https://schema.mp.microsoft.com/schema'
+
+function Import-EnvFile([string]$path) {
+  if (-not (Test-Path $path)) {
+    throw "Env file not found: $path. Copy .env.example to .env and fill in your service principal."
+  }
+  Get-Content $path | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith('#')) { return }
+    $idx = $line.IndexOf('=')
+    if ($idx -lt 1) { return }
+    $name = $line.Substring(0, $idx).Trim()
+    $value = $line.Substring($idx + 1).Trim()
+    Set-Item -Path "Env:$name" -Value $value
+  }
+}
+
+Import-EnvFile $EnvFile
+$tenant = $env:AZURE_TENANT_ID
+$clientId = $env:AZURE_CLIENT_ID
+$clientSecret = $env:AZURE_CLIENT_SECRET
+if (-not $tenant -or -not $clientId -or -not $clientSecret) {
+  throw 'AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET must all be set.'
+}
+
+Write-Host 'Acquiring access token...'
+$tokenResponse = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$tenant/oauth2/v2.0/token" -Body @{
+  client_id     = $clientId
+  scope         = 'https://graph.microsoft.com/.default'
+  client_secret = $clientSecret
+  grant_type    = 'client_credentials'
+}
+$headers = @{ Authorization = "Bearer $($tokenResponse.access_token)" }
+
+$configurePath = Join-Path $PSScriptRoot 'configure.json'
+$configureBody = Get-Content -Raw -Path $configurePath
+$configure = $configureBody | ConvertFrom-Json
+$productExternalId = ($configure.resources |
+  Where-Object { $_.type -in @('softwareAsAService', 'azureVirtualMachine', 'azureContainer') } |
+  Select-Object -First 1).identity.externalID
+
+Write-Host 'Submitting configure payload (creates a draft skeleton)...'
+$job = Invoke-RestMethod -Method Post -Uri "$base/configure?\`$version=$apiVersion" -Headers $headers -ContentType 'application/json' -Body $configureBody
+while ($job.jobStatus -eq 'running') {
+  Start-Sleep -Seconds 5
+  $job = Invoke-RestMethod -Method Get -Uri "$base/configure/$($job.jobId)?\`$version=$apiVersion" -Headers $headers
+  Write-Host "  job $($job.jobId): $($job.jobStatus) / $($job.jobResult)"
+}
+if ($job.jobResult -ne 'succeeded') {
+  Write-Error "Configure job failed: $($job | ConvertTo-Json -Depth 10)"
+  exit 1
+}
+Write-Host 'Draft created.' -ForegroundColor Green
+
+$product = Invoke-RestMethod -Method Get -Uri "$base/product?externalId=$productExternalId&\`$version=$apiVersion" -Headers $headers
+$productId = $product.id
+Write-Host "Product durable id: $productId"
+
+if ($ExportResourceTree) {
+  Write-Host 'Exporting resource tree...'
+  $tree = Invoke-RestMethod -Method Get -Uri "$base/resource-tree/$productId?\`$version=$apiVersion" -Headers $headers
+  $tree | ConvertTo-Json -Depth 25 | Out-File -FilePath (Join-Path $PSScriptRoot 'resource-tree.json') -Encoding utf8
+  Write-Host 'Saved resource-tree.json - map listing-content.json onto it, then re-submit the listing resource.'
+}
+
+if ($Target -ne 'draft') {
+  Write-Host "Publishing to $Target..."
+  $submission = @{
+    '$schema' = "$schemaBase/submission/$apiVersion"
+    product   = $productId
+    target    = @{ targetType = $Target }
+  }
+  $publishBody = @{
+    '$schema'   = "$schemaBase/configure/$apiVersion"
+    'resources' = @($submission)
+  } | ConvertTo-Json -Depth 10
+  $pub = Invoke-RestMethod -Method Post -Uri "$base/configure?\`$version=$apiVersion" -Headers $headers -ContentType 'application/json' -Body $publishBody
+  while ($pub.jobStatus -eq 'running') {
+    Start-Sleep -Seconds 10
+    $pub = Invoke-RestMethod -Method Get -Uri "$base/configure/$($pub.jobId)?\`$version=$apiVersion" -Headers $headers
+    Write-Host "  publish: $($pub.jobStatus) / $($pub.jobResult)"
+  }
+  Write-Host "Publish result: $($pub.jobResult)"
+}
+`;
+
+const SUBMISSION_PACKAGE_JSON = `{
+  "name": "marketplace-submit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "submit": "node submit.mjs"
+  }
+}
+`;
+
+const SUBMISSION_MJS = `// submit.mjs
+// Submit configure.json to the Microsoft Partner Center Product Ingestion API.
+// Requires Node.js 18+ (uses the global fetch API). No npm dependencies.
+//
+// Usage:
+//   node submit.mjs
+//   node submit.mjs --target preview --export-resource-tree
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const apiVersion = '2022-03-01-preview2';
+const base = 'https://graph.microsoft.com/rp/product-ingestion';
+const schemaBase = 'https://schema.mp.microsoft.com/schema';
+
+function loadEnv(path) {
+  try {
+    for (const raw of readFileSync(path, 'utf8').split(/\\r?\\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const i = line.indexOf('=');
+      if (i < 1) continue;
+      const key = line.slice(0, i).trim();
+      if (!process.env[key]) process.env[key] = line.slice(i + 1).trim();
+    }
+  } catch {
+    // .env is optional when the variables are already exported.
+  }
+}
+
+const argv = process.argv.slice(2);
+const argValue = (name, fallback) => {
+  const i = argv.indexOf(name);
+  return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
+};
+const target = argValue('--target', 'draft');
+const exportTree = argv.includes('--export-resource-tree');
+
+loadEnv(join(here, argValue('--env', '.env')));
+const tenant = process.env.AZURE_TENANT_ID;
+const clientId = process.env.AZURE_CLIENT_ID;
+const clientSecret = process.env.AZURE_CLIENT_SECRET;
+if (!tenant || !clientId || !clientSecret) {
+  throw new Error('AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET must all be set.');
+}
+
+async function getToken() {
+  const res = await fetch(\\\`https://login.microsoftonline.com/\\\${tenant}/oauth2/v2.0/token\\\`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      scope: 'https://graph.microsoft.com/.default',
+      client_secret: clientSecret,
+      grant_type: 'client_credentials'
+    })
+  });
+  if (!res.ok) throw new Error(\\\`Token request failed: \\\${res.status} \\\${await res.text()}\\\`);
+  return (await res.json()).access_token;
+}
+
+const token = await getToken();
+const authHeaders = { Authorization: \\\`Bearer \\\${token}\\\` };
+const qv = \\\`?$version=\\\${apiVersion}\\\`;
+
+async function api(method, path, body) {
+  const res = await fetch(\\\`\\\${base}\\\${path}\\\`, {
+    method,
+    headers: { ...authHeaders, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined
+  });
+  if (!res.ok) throw new Error(\\\`\\\${method} \\\${path} failed: \\\${res.status} \\\${await res.text()}\\\`);
+  return res.json();
+}
+
+const configureBody = readFileSync(join(here, 'configure.json'), 'utf8');
+const configure = JSON.parse(configureBody);
+const productResource = configure.resources.find((r) =>
+  ['softwareAsAService', 'azureVirtualMachine', 'azureContainer'].includes(r.type)
+);
+const productExternalId = productResource?.identity?.externalID;
+
+console.log('Submitting configure payload (creates a draft skeleton)...');
+let job = await api('POST', \\\`/configure\\\${qv}\\\`, configureBody);
+while (job.jobStatus === 'running') {
+  await new Promise((r) => setTimeout(r, 5000));
+  job = await api('GET', \\\`/configure/\\\${job.jobId}\\\${qv}\\\`);
+  console.log(\\\`  job \\\${job.jobId}: \\\${job.jobStatus} / \\\${job.jobResult}\\\`);
+}
+if (job.jobResult !== 'succeeded') {
+  console.error('Configure job failed:', JSON.stringify(job, null, 2));
+  process.exit(1);
+}
+console.log('Draft created.');
+
+const product = await api('GET', \\\`/product?externalId=\\\${productExternalId}&$version=\\\${apiVersion}\\\`);
+const productId = product.id;
+console.log('Product durable id:', productId);
+
+if (exportTree) {
+  const tree = await api('GET', \\\`/resource-tree/\\\${productId}\\\${qv}\\\`);
+  writeFileSync(join(here, 'resource-tree.json'), JSON.stringify(tree, null, 2));
+  console.log('Saved resource-tree.json - map listing-content.json onto it, then re-submit the listing resource.');
+}
+
+if (target !== 'draft') {
+  console.log(\\\`Publishing to \\\${target}...\\\`);
+  const payload = {
+    '$schema': \\\`\\\${schemaBase}/configure/\\\${apiVersion}\\\`,
+    resources: [
+      {
+        '$schema': \\\`\\\${schemaBase}/submission/\\\${apiVersion}\\\`,
+        product: productId,
+        target: { targetType: target }
+      }
+    ]
+  };
+  let pub = await api('POST', \\\`/configure\\\${qv}\\\`, payload);
+  while (pub.jobStatus === 'running') {
+    await new Promise((r) => setTimeout(r, 10000));
+    pub = await api('GET', \\\`/configure/\\\${pub.jobId}\\\${qv}\\\`);
+    console.log(\\\`  publish: \\\${pub.jobStatus} / \\\${pub.jobResult}\\\`);
+  }
+  console.log('Publish result:', pub.jobResult);
+}
+`;
+
+const SUBMISSION_CSPROJ = `<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>MarketplaceSubmit</RootNamespace>
+  </PropertyGroup>
+
+</Project>
+`;
+
+const SUBMISSION_PROGRAM_CS = `// Program.cs
+// Submit configure.json to the Microsoft Partner Center Product Ingestion API.
+// .NET 10 console app. No external NuGet packages required.
+//
+// Usage:
+//   dotnet run -- --target draft
+//   dotnet run -- --target preview --export-resource-tree
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+
+const string apiVersion = "2022-03-01-preview2";
+const string baseUrl = "https://graph.microsoft.com/rp/product-ingestion";
+const string schemaBase = "https://schema.mp.microsoft.com/schema";
+var qv = "?$version=" + apiVersion;
+
+var envFile = GetArg(args, "--env") ?? ".env";
+var target = GetArg(args, "--target") ?? "draft";
+var exportTree = args.Contains("--export-resource-tree");
+
+LoadEnv(envFile);
+var tenant = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
+var clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET");
+if (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+    throw new InvalidOperationException("AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET must all be set.");
+
+using var http = new HttpClient();
+var token = await GetTokenAsync();
+http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+var configurePath = File.Exists("configure.json")
+    ? "configure.json"
+    : Path.Combine(AppContext.BaseDirectory, "configure.json");
+var configureBody = await File.ReadAllTextAsync(configurePath);
+using var configureDoc = JsonDocument.Parse(configureBody);
+string? productExternalId = null;
+foreach (var r in configureDoc.RootElement.GetProperty("resources").EnumerateArray())
+{
+    if (r.TryGetProperty("type", out var t) &&
+        t.GetString() is "softwareAsAService" or "azureVirtualMachine" or "azureContainer")
+    {
+        productExternalId = r.GetProperty("identity").GetProperty("externalID").GetString();
+        break;
+    }
+}
+
+Console.WriteLine("Submitting configure payload (creates a draft skeleton)...");
+var job = await PostAsync("/configure" + qv, configureBody);
+while (job.GetProperty("jobStatus").GetString() == "running")
+{
+    await Task.Delay(5000);
+    job = await GetAsync("/configure/" + job.GetProperty("jobId").GetString() + qv);
+    Console.WriteLine("  job: " + job.GetProperty("jobStatus").GetString() + " / " + JobResult(job));
+}
+if (JobResult(job) != "succeeded")
+{
+    Console.Error.WriteLine("Configure job failed: " + job.ToString());
+    Environment.Exit(1);
+}
+Console.WriteLine("Draft created.");
+
+var product = await GetAsync("/product?externalId=" + productExternalId + "&$version=" + apiVersion);
+var productId = product.GetProperty("id").GetString();
+Console.WriteLine("Product durable id: " + productId);
+
+if (exportTree)
+{
+    var tree = await GetAsync("/resource-tree/" + productId + qv);
+    await File.WriteAllTextAsync("resource-tree.json", tree.ToString());
+    Console.WriteLine("Saved resource-tree.json - map listing-content.json onto it, then re-submit the listing resource.");
+}
+
+if (target != "draft")
+{
+    Console.WriteLine("Publishing to " + target + "...");
+    var publishBody =
+        "{\\"$schema\\":\\"" + schemaBase + "/configure/" + apiVersion + "\\"," +
+        "\\"resources\\":[{\\"$schema\\":\\"" + schemaBase + "/submission/" + apiVersion + "\\"," +
+        "\\"product\\":\\"" + productId + "\\",\\"target\\":{\\"targetType\\":\\"" + target + "\\"}}]}";
+    var pub = await PostAsync("/configure" + qv, publishBody);
+    while (pub.GetProperty("jobStatus").GetString() == "running")
+    {
+        await Task.Delay(10000);
+        pub = await GetAsync("/configure/" + pub.GetProperty("jobId").GetString() + qv);
+        Console.WriteLine("  publish: " + pub.GetProperty("jobStatus").GetString() + " / " + JobResult(pub));
+    }
+    Console.WriteLine("Publish result: " + JobResult(pub));
+}
+
+static string JobResult(JsonElement e) =>
+    e.TryGetProperty("jobResult", out var jr) ? jr.GetString() ?? "" : "";
+
+async Task<JsonElement> PostAsync(string path, string body)
+{
+    using var content = new StringContent(body, Encoding.UTF8, "application/json");
+    var res = await http.PostAsync(baseUrl + path, content);
+    var text = await res.Content.ReadAsStringAsync();
+    if (!res.IsSuccessStatusCode)
+        throw new HttpRequestException("POST " + path + " failed: " + (int)res.StatusCode + " " + text);
+    return JsonDocument.Parse(text).RootElement.Clone();
+}
+
+async Task<JsonElement> GetAsync(string path)
+{
+    var res = await http.GetAsync(baseUrl + path);
+    var text = await res.Content.ReadAsStringAsync();
+    if (!res.IsSuccessStatusCode)
+        throw new HttpRequestException("GET " + path + " failed: " + (int)res.StatusCode + " " + text);
+    return JsonDocument.Parse(text).RootElement.Clone();
+}
+
+async Task<string> GetTokenAsync()
+{
+    using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["client_id"] = clientId!,
+        ["scope"] = "https://graph.microsoft.com/.default",
+        ["client_secret"] = clientSecret!,
+        ["grant_type"] = "client_credentials"
+    });
+    using var tokenClient = new HttpClient();
+    var res = await tokenClient.PostAsync(
+        "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0/token", form);
+    var text = await res.Content.ReadAsStringAsync();
+    if (!res.IsSuccessStatusCode)
+        throw new HttpRequestException("Token request failed: " + text);
+    using var doc = JsonDocument.Parse(text);
+    return doc.RootElement.GetProperty("access_token").GetString()!;
+}
+
+static string? GetArg(string[] argv, string name)
+{
+    var i = Array.IndexOf(argv, name);
+    return i >= 0 && i + 1 < argv.Length ? argv[i + 1] : null;
+}
+
+static void LoadEnv(string path)
+{
+    if (!File.Exists(path)) return;
+    foreach (var raw in File.ReadAllLines(path))
+    {
+        var line = raw.Trim();
+        if (line.Length == 0 || line.StartsWith('#')) continue;
+        var idx = line.IndexOf('=');
+        if (idx < 1) continue;
+        var key = line[..idx].Trim();
+        var value = line[(idx + 1)..].Trim();
+        if (Environment.GetEnvironmentVariable(key) is null)
+            Environment.SetEnvironmentVariable(key, value);
+    }
+}
+`;
+
+const SUBMISSION_WORKFLOW_YML = `name: Submit marketplace offer
+
+# Secretless submission using Microsoft Entra Workload Identity Federation (OIDC).
+# Configure a federated credential on your app registration for this repository,
+# then set repository variables AZURE_TENANT_ID and AZURE_CLIENT_ID.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'draft | preview | live'
+        required: true
+        default: 'draft'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC - no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: \\\${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: \\\${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Submit configure payload
+        shell: pwsh
+        run: |
+          $apiVersion = '2022-03-01-preview2'
+          $base = 'https://graph.microsoft.com/rp/product-ingestion'
+          $token = az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv
+          $headers = @{ Authorization = "Bearer $token" }
+          $body = Get-Content -Raw configure.json
+          $job = Invoke-RestMethod -Method Post -Uri "$base/configure?\\\`$version=$apiVersion" -Headers $headers -ContentType 'application/json' -Body $body
+          while ($job.jobStatus -eq 'running') {
+            Start-Sleep -Seconds 5
+            $job = Invoke-RestMethod -Method Get -Uri "$base/configure/$($job.jobId)?\\\`$version=$apiVersion" -Headers $headers
+            Write-Host "$($job.jobStatus) / $($job.jobResult)"
+          }
+          if ($job.jobResult -ne 'succeeded') { throw "Configure failed: $($job | ConvertTo-Json -Depth 10)" }
+          Write-Host 'Draft created.'
+`;
+
+function submissionRunInstructions(ctx: SubmissionZipContext): string {
+  if (ctx.language === 'csharp') {
+    return [
+      '```bash',
+      '# .NET 10 SDK required',
+      'cd Submit',
+      'cp ../.env.example ../.env   # then edit ../.env',
+      'dotnet run -- --target draft',
+      '```'
+    ].join('\\n');
+  }
+  return [
+    '```bash',
+    '# Node.js 18+ required (no npm install needed)',
+    'cp .env.example .env   # then edit .env',
+    'node submit.mjs --target draft',
+    '```'
+  ].join('\\n');
+}
+
+function submissionReadme(ctx: SubmissionZipContext): string {
+  const prereqs = ctx.prerequisites.length
+    ? ctx.prerequisites.map((p) => `- ${p}`).join('\\n')
+    : '- A live Partner Center account enrolled in the commercial marketplace program.';
+  return `# Submit "${ctx.offerName}" to Partner Center
+
+This bundle was generated by the Marketplace Offer Wizard. It submits your
+**${ctx.offerTypeName}** offer to the Microsoft Partner Center **Product Ingestion API**
+using **your own** Microsoft Entra service principal. Nothing here calls a third-party
+backend and no credentials ever leave your machine (or your CI runner).
+
+## What gets submitted
+
+The wizard cannot guess every field of the large, frequently-changing listing schema,
+so this bundle is intentionally **two-tier**:
+
+1. **\`configure.json\`** - a guaranteed-valid \`configure\` payload that creates a **draft**:
+   the product${ctx.productIngestionType === 'softwareAsAService' ? ', the commercial-marketplace-setup,' : ''} and your plan skeleton(s).
+   The submit script POSTs this as-is.
+2. **\`listing-content.json\`** - your listing copy, search keywords and links. This is a
+   neutral sidecar you apply **after** the draft exists - see \`MAPPING.md\`.
+
+> The \`configure\` API is atomic: one invalid property fails the whole job. Keeping listing
+> copy out of the automated payload means the draft always succeeds; you then layer the
+> listing on with full visibility via \`-ExportResourceTree\`.
+
+## Prerequisites
+
+${prereqs}
+- An Entra app registration (service principal) in your tenant with a client secret.
+- That service principal added in **Partner Center > Account settings > User management >
+  Azure AD applications** with the **Manager** role.
+- PowerShell 7+ (for \`submit.ps1\`)${ctx.language === 'csharp' ? ', plus the **.NET 10 SDK** for the C# variant.' : ', or **Node.js 18+** for \`submit.mjs\`.'}
+
+## Run it
+
+Fill in your service principal, then create the draft:
+
+${submissionRunInstructions(ctx)}
+
+Or use the always-available cross-platform PowerShell script:
+
+\`\`\`bash
+cp .env.example .env   # then edit .env
+pwsh ./submit.ps1 -Target draft
+\`\`\`
+
+### Publish to preview / live
+
+\`\`\`bash
+pwsh ./submit.ps1 -Target preview -ExportResourceTree
+# review the preview offer in Partner Center, then:
+pwsh ./submit.ps1 -Target live
+\`\`\`
+
+\`-Target preview\` and \`-Target live\` add a \`submission\` resource that requests publishing.
+\`live\` requires the offer to have reached **preview** first.
+
+## CI (optional, secretless)
+
+\`.github/workflows/submit.yml\` submits the draft from GitHub Actions using **Workload
+Identity Federation (OIDC)** - configure a federated credential on the app registration
+and set repository variables \`AZURE_TENANT_ID\` and \`AZURE_CLIENT_ID\`. No client secret
+is stored anywhere.
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| \`configure.json\` | The Product Ingestion \`configure\` payload (draft skeleton). |
+| \`listing-content.json\` | Listing copy + links to apply after the draft exists. |
+| \`submit.ps1\` | PowerShell submit/poll/publish script (cross-platform). |
+| ${ctx.language === 'csharp' ? '`Submit/`' : '`submit.mjs`'} | ${ctx.language === 'csharp' ? '.NET 10 console variant.' : 'Node.js variant.'} |
+| \`.env.example\` | Template for your service principal credentials. |
+| \`MAPPING.md\` | How to apply \`listing-content.json\` onto the live listing schema. |
+| \`.github/workflows/submit.yml\` | Optional secretless CI submission (OIDC). |
+`;
+}
+
+function submissionMapping(ctx: SubmissionZipContext): string {
+  return `# Applying your listing content
+
+\`configure.json\` deliberately omits the marketplace **listing** (descriptions, search
+keywords, links, images) and **pricing schedule** because those schemas are large and
+change often. This file explains how to layer \`listing-content.json\` onto your draft.
+
+## 1. Create the draft
+
+\`\`\`bash
+pwsh ./submit.ps1 -Target draft -ExportResourceTree
+\`\`\`
+
+\`-ExportResourceTree\` writes \`resource-tree.json\` - the full, current resource graph for
+your product, including the exact \`listing\` resource schema and IDs Partner Center expects
+for **${ctx.offerTypeName}**.
+
+## 2. Map listing-content.json onto the listing resource
+
+Open \`resource-tree.json\` and find the resource whose \`$schema\` ends in \`/listing/...\`.
+Copy these values from \`listing-content.json\` into it:
+
+| listing-content.json | Listing resource field |
+| --- | --- |
+| \`title\` | \`title\` |
+| \`searchResultSummary\` | \`searchResultSummary\` |
+| \`shortDescription\` | \`shortDescription\` |
+| \`description\` | \`description\` (HTML allowed) |
+| \`keywords\` | \`searchKeywords\` |
+| \`gettingStartedInstructions\` | \`gettingStartedInstructions\` |
+| \`privacyPolicyLink\` | \`privacyPolicyLink\` |
+| \`supportLink\` (or contact) | \`supportContact\` / \`usefulLinks\` |
+| \`termsOfUseLink\` | the offer's terms / \`legal\` resource |
+
+> Field names vary slightly by offer type - always trust \`resource-tree.json\` over this
+> table. Images (logos, screenshots) are uploaded as listing **assets**; generate them in
+> the wizard's Assets step and attach them to the listing resource.
+
+## 3. Re-submit the listing resource
+
+Wrap the edited listing resource in a \`configure\` envelope and POST it (the submit scripts
+already show the POST + poll pattern), or paste the values directly in Partner Center.
+
+## 4. Publish
+
+\`\`\`bash
+pwsh ./submit.ps1 -Target preview   # validate in preview
+pwsh ./submit.ps1 -Target live      # go live after preview looks good
+\`\`\`
+`;
+}
+
+export async function buildSubmissionZip(ctx: SubmissionZipContext): Promise<Blob> {
+  const zip = new JSZip();
+  const root = zip.folder('partner-center-submission');
+  if (!root) return zip.generateAsync({ type: 'blob' });
+
+  root.file('configure.json', JSON.stringify(ctx.configurePayload, null, 2));
+  root.file('listing-content.json', JSON.stringify(ctx.listingContent, null, 2));
+  root.file('.env.example', SUBMISSION_ENV_EXAMPLE);
+  root.file('submit.ps1', SUBMISSION_PS1);
+  root.file('README.md', submissionReadme(ctx));
+  root.file('MAPPING.md', submissionMapping(ctx));
+
+  if (ctx.language === 'csharp') {
+    const dir = root.folder('Submit');
+    if (dir) {
+      dir.file('Submit.csproj', SUBMISSION_CSPROJ);
+      dir.file('Program.cs', SUBMISSION_PROGRAM_CS);
+    }
+  } else {
+    root.file('submit.mjs', SUBMISSION_MJS);
+    root.file('package.json', SUBMISSION_PACKAGE_JSON);
+  }
+
+  const workflows = root.folder('.github')?.folder('workflows');
+  if (workflows) workflows.file('submit.yml', SUBMISSION_WORKFLOW_YML);
 
   return zip.generateAsync({ type: 'blob' });
 }
