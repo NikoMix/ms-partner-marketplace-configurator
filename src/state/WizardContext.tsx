@@ -8,6 +8,7 @@ import {
   DEFAULT_COACH_PROMPT,
   type AiSettings
 } from '../ai/prompts';
+import { parseOfferImportFromLocation, applyOfferImport } from './offerImport';
 
 // ---------------------------------------------------------------------------
 // Step model
@@ -104,6 +105,7 @@ type Action =
   | { type: 'ADD_PLAN'; plan: PlanConfig }
   | { type: 'UPDATE_PLAN'; plan: PlanConfig }
   | { type: 'REMOVE_PLAN'; planId: string }
+  | { type: 'SET_PLANS'; plans: PlanConfig[] }
   | { type: 'SET_ASSET'; specId: string; dataUrl: string }
   | { type: 'REMOVE_ASSET'; specId: string }
   | { type: 'SET_AI'; ai: Partial<AiSettings> }
@@ -166,6 +168,8 @@ function reducer(state: WizardState, action: Action): WizardState {
       };
     case 'REMOVE_PLAN':
       return { ...state, plans: state.plans.filter((p) => p.id !== action.planId) };
+    case 'SET_PLANS':
+      return { ...state, plans: action.plans };
     case 'SET_BILLING_LANGUAGE':
       return { ...state, billingLanguage: action.language };
     case 'SET_ASSET':
@@ -276,7 +280,29 @@ interface WizardContextValue {
 const WizardContext = createContext<WizardContextValue | undefined>(undefined);
 
 export function WizardProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState, (init) => loadPersisted() ?? init);
+  const [state, dispatch] = useReducer(reducer, initialState, (init) => {
+    const persisted = loadPersisted() ?? init;
+    // If the app was opened with an offering payload on the URL, hydrate from
+    // it and jump to the first incomplete step. This overrides any in-progress
+    // localStorage (preserving only AI settings / prompts).
+    try {
+      const imp = parseOfferImportFromLocation(window.location.search, window.location.hash);
+      if (imp) {
+        const result = applyOfferImport(persisted, imp);
+        if (result) {
+          try {
+            sessionStorage.setItem('mp-wizard-imported', '1');
+          } catch {
+            /* ignore */
+          }
+          return result.state;
+        }
+      }
+    } catch {
+      /* ignore malformed payloads and fall back to persisted state */
+    }
+    return persisted;
+  });
 
   useEffect(() => {
     try {

@@ -16,13 +16,24 @@ import {
 import {
   ArrowDownload20Regular,
   DocumentText20Regular,
-  CheckmarkCircle20Regular
+  CheckmarkCircle20Regular,
+  Share20Regular,
+  Checkmark20Regular,
+  Open20Regular
 } from '@fluentui/react-icons';
 import { useWizard } from '../state/WizardContext';
 import { getOfferType } from '../data/catalog';
 import { LISTING_OPTIONS } from '../data/types';
-import { buildProjectZip, triggerDownload } from '../zip/templates';
-import type { ProjectAsset, BillingZipContext, PlanSummary } from '../zip/templates';
+import { buildShareLink } from '../state/offerImport';
+import { buildProjectZip, buildSubmissionZip, triggerDownload } from '../zip/templates';
+import type { ProjectAsset, BillingZipContext, PlanSummary, SubmissionZipContext } from '../zip/templates';
+import {
+  getSubmissionCoverage,
+  canGenerateSubmissionScript,
+  PARTNER_CENTER_OFFERS_URL
+} from '../submission/coverage';
+import { buildConfigurePayload, buildListingContent } from '../submission/payload';
+import type { SubmissionInput, SubmissionPlanInput } from '../submission/payload';
 
 const useStyles = makeStyles({
   panel: {
@@ -52,7 +63,9 @@ export function SummaryStep() {
   const offer = state.offerTypeId ? getOfferType(state.offerTypeId) : undefined;
 
   const [zipBusy, setZipBusy] = useState(false);
+  const [subBusy, setSubBusy] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   if (!offer) {
     return (
@@ -71,6 +84,9 @@ export function SummaryStep() {
   const offerName = state.fieldValues.offerName || offer.name;
   const selectedModels = offer.billingModels.filter((b) => state.selectedBillingModelIds.includes(b.id));
   const assetEntries = Object.entries(state.assets);
+
+  const coverage = getSubmissionCoverage(offer.id);
+  const scriptable = canGenerateSubmissionScript(coverage);
 
   function buildPlanObject() {
     return {
@@ -147,6 +163,62 @@ export function SummaryStep() {
       setError('Could not build the project ZIP.');
     } finally {
       setZipBusy(false);
+    }
+  }
+
+  function buildSubmissionInput(): SubmissionInput {
+    const plans: SubmissionPlanInput[] = state.plans.map((p) => ({
+      name: p.name,
+      billingModelLabel:
+        offer!.billingModels.find((b) => b.id === p.billingModelId)?.label ?? p.billingModelId,
+      price: p.price,
+      cadence: p.cadence,
+      notes: p.notes
+    }));
+    return {
+      offerId: offer!.id,
+      offerName,
+      productIngestionType: coverage.productIngestionType ?? 'softwareAsAService',
+      transactable: offer!.transactable !== 'no',
+      listing: state.fieldValues,
+      plans
+    };
+  }
+
+  async function exportSubmissionZip() {
+    setError('');
+    setSubBusy(true);
+    try {
+      const input = buildSubmissionInput();
+      const ctx: SubmissionZipContext = {
+        offerName,
+        offerTypeName: offer!.name,
+        productIngestionType: input.productIngestionType,
+        transactable: input.transactable,
+        language: state.billingLanguage,
+        configurePayload: buildConfigurePayload(input),
+        listingContent: buildListingContent(input),
+        prerequisites: coverage.prerequisites ?? []
+      };
+      const blob = await buildSubmissionZip(ctx);
+      triggerDownload(blob, `${slugify(offerName)}-partner-center-submission.zip`);
+    } catch {
+      setError('Could not build the Partner Center submission bundle.');
+    } finally {
+      setSubBusy(false);
+    }
+  }
+
+  async function copyShareLink() {
+    setError('');
+    try {
+      const link = buildShareLink(state);
+      if (!link) return;
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Could not copy the shareable link.');
     }
   }
 
@@ -237,7 +309,15 @@ export function SummaryStep() {
         <Button icon={<DocumentText20Regular />} onClick={exportJson}>
           Export plan JSON
         </Button>
+        <Button icon={copied ? <Checkmark20Regular /> : <Share20Regular />} onClick={copyShareLink}>
+          {copied ? 'Link copied' : 'Copy shareable link'}
+        </Button>
       </div>
+
+      <Caption1 className={styles.meta} style={{ marginTop: '8px', display: 'block' }}>
+        The shareable link reopens this wizard with your offering pre-filled and jumps to the first
+        step that still needs input. Generated assets aren&apos;t included in the link.
+      </Caption1>
 
       {error && (
         <MessageBar intent="error" style={{ marginTop: '12px' }}>
@@ -248,13 +328,86 @@ export function SummaryStep() {
       <div className={styles.panel} style={{ marginTop: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <CheckmarkCircle20Regular style={{ color: '#0067b8' }} />
-          <Body1Strong>Next: publish in Partner Center</Body1Strong>
+          <Body1Strong>
+            {scriptable ? 'Submit to Partner Center' : 'Next: publish in Partner Center'}
+          </Body1Strong>
         </div>
-        <Body1>
-          Sign in to Partner Center, create a new {offer.name} offer, and use this plan, your
-          listing copy, generated assets and the billing starter to complete and submit it for
-          certification.
-        </Body1>
+
+        {scriptable ? (
+          <>
+            <Body1>{coverage.note}</Body1>
+            <Body1 className={styles.meta}>
+              Download a ready-to-run bundle that POSTs a configure payload to the Product Ingestion
+              API to create a draft {offer.name} product plus plan skeletons. It runs locally or in
+              CI with <strong>your own</strong> Microsoft Entra service principal &mdash; no secrets
+              ever touch this browser. Includes a PowerShell script plus a{' '}
+              {state.billingLanguage === 'csharp' ? '.NET' : 'Node.js'} variant, a GitHub Actions
+              workflow, and a MAPPING.md describing how to apply your listing copy and pricing.
+            </Body1>
+            {coverage.prerequisites && coverage.prerequisites.length > 0 && (
+              <>
+                <Caption1 className={styles.meta}>Before you submit</Caption1>
+                <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {coverage.prerequisites.map((p, i) => (
+                    <li key={i}>
+                      <Caption1>{p}</Caption1>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <div className={styles.actions}>
+              <Button
+                appearance="primary"
+                icon={<ArrowDownload20Regular />}
+                onClick={exportSubmissionZip}
+                disabled={subBusy}
+              >
+                {subBusy ? <Spinner size="tiny" /> : null}
+                Download submission bundle ({state.billingLanguage === 'csharp' ? '.NET' : 'Node.js'})
+              </Button>
+              <Button
+                as="a"
+                icon={<Open20Regular />}
+                href={PARTNER_CENTER_OFFERS_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open Partner Center
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Body1>{coverage.note}</Body1>
+            <Body1 className={styles.meta}>
+              Sign in to Partner Center, create a new {offer.name} offer, and use this plan, your
+              listing copy, generated assets and the billing starter to complete and submit it for
+              certification.
+            </Body1>
+            <div className={styles.actions}>
+              <Button
+                as="a"
+                appearance="primary"
+                icon={<Open20Regular />}
+                href={PARTNER_CENTER_OFFERS_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open Partner Center
+              </Button>
+              <Button
+                as="a"
+                icon={<DocumentText20Regular />}
+                href={offer.docUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {offer.name} docs
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -20,9 +20,11 @@ import {
   makeStyles,
   tokens
 } from '@fluentui/react-components';
-import { Add20Regular, Delete20Regular, ArrowDownload20Regular } from '@fluentui/react-icons';
+import { Add20Regular, Delete20Regular, ArrowDownload20Regular, ArrowReset20Regular } from '@fluentui/react-icons';
 import { useWizard } from '../state/WizardContext';
+import type { PlanConfig } from '../state/WizardContext';
 import { getOfferType } from '../data/catalog';
+import { buildDefaultPlans } from '../data/common';
 import { buildBillingZip, triggerDownload } from '../zip/templates';
 import type { PlanSummary } from '../zip/templates';
 import type { BillingLanguage } from '../data/types';
@@ -95,21 +97,55 @@ export function BillingStep() {
 
   const offerName = state.fieldValues.offerName || offer.name;
 
+  /** Toggle a billing model and auto-seed realistic starter plans on selection. */
+  function toggleBilling(modelId: string) {
+    const isSelected = state.selectedBillingModelIds.includes(modelId);
+    dispatch({ type: 'TOGGLE_BILLING', billingModelId: modelId });
+    if (isSelected) return; // turning off — leave existing plans untouched
+
+    const model = offer!.billingModels.find((b) => b.id === modelId);
+    if (!model) return;
+    const alreadyHasPlans = state.plans.some((p) => p.billingModelId === modelId);
+    if (alreadyHasPlans) return; // don't duplicate if the partner already has plans here
+
+    for (const t of buildDefaultPlans(model)) {
+      dispatch({
+        type: 'ADD_PLAN',
+        plan: { id: crypto.randomUUID(), billingModelId: modelId, ...t }
+      });
+    }
+  }
+
   function addPlan() {
     const firstId = state.selectedBillingModelIds[0] ?? offer!.billingModels[0]?.id ?? '';
     const model = offer!.billingModels.find((b) => b.id === firstId);
-    const cadence = model?.cadences?.[0] ?? (model?.metered ? 'Metered usage' : '');
+    const template = model ? buildDefaultPlans(model)[0] : undefined;
+    const cadence =
+      template?.cadence ?? model?.cadences?.[0] ?? (model?.metered ? 'Metered usage' : '');
     dispatch({
       type: 'ADD_PLAN',
       plan: {
         id: crypto.randomUUID(),
-        name: `Plan ${state.plans.length + 1}`,
+        name: template?.name ?? `Plan ${state.plans.length + 1}`,
         billingModelId: firstId,
-        price: '',
+        price: template?.price ?? '',
         cadence,
-        notes: ''
+        notes: template?.notes ?? ''
       }
     });
+  }
+
+  /** Replace all plans with the suggested starter set for every selected model. */
+  function resetSuggestedPlans() {
+    const seeded: PlanConfig[] = [];
+    for (const id of state.selectedBillingModelIds) {
+      const model = offer!.billingModels.find((b) => b.id === id);
+      if (!model) continue;
+      for (const t of buildDefaultPlans(model)) {
+        seeded.push({ id: crypto.randomUUID(), billingModelId: id, ...t });
+      }
+    }
+    dispatch({ type: 'SET_PLANS', plans: seeded });
   }
 
   async function downloadZip() {
@@ -146,8 +182,9 @@ export function BillingStep() {
     <div className="step-body">
       <Title3 as="h2">Billing &amp; plans</Title3>
       <Body1>
-        Select the billing models you&apos;ll offer, configure plans, then download a starter
-        template wired for {offer.billingZipKind.replace(/-/g, ' ')} billing.
+        Select the billing models you&apos;ll offer and we&apos;ll prefill realistic starter plans
+        you can tweak. Then download a starter template wired for{' '}
+        {offer.billingZipKind.replace(/-/g, ' ')} billing.
       </Body1>
 
       <div className={styles.section} style={{ marginTop: '16px' }}>
@@ -157,7 +194,7 @@ export function BillingStep() {
             <Checkbox
               key={b.id}
               checked={state.selectedBillingModelIds.includes(b.id)}
-              onChange={() => dispatch({ type: 'TOGGLE_BILLING', billingModelId: b.id })}
+              onChange={() => toggleBilling(b.id)}
               label={
                 <span>
                   <Body1>{b.label}</Body1> <Caption1 className={styles.meta}>— {b.description}</Caption1>
@@ -173,13 +210,28 @@ export function BillingStep() {
       <div className={styles.section} style={{ marginTop: '16px' }}>
         <div className={styles.planHead}>
           <Body1Strong>Plans &amp; pricing</Body1Strong>
-          <Button size="small" icon={<Add20Regular />} onClick={addPlan}>
-            Add plan
-          </Button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {state.selectedBillingModelIds.length > 0 && (
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<ArrowReset20Regular />}
+                onClick={resetSuggestedPlans}
+              >
+                Reset to suggested
+              </Button>
+            )}
+            <Button size="small" icon={<Add20Regular />} onClick={addPlan}>
+              Add plan
+            </Button>
+          </div>
         </div>
 
         {state.plans.length === 0 && (
-          <Caption1 className={styles.meta}>No plans yet — add one to model your pricing.</Caption1>
+          <Caption1 className={styles.meta}>
+            No plans yet — select a billing model above to prefill suggested plans, or add one
+            manually.
+          </Caption1>
         )}
 
         {state.plans.map((p) => {
